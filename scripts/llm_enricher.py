@@ -33,37 +33,12 @@ REQUEST_TIMEOUT = 30
 # combined). Keeps token costs predictable (~1500 input tokens).
 MAX_CONTEXT_CHARS = 5000
 
-_SYSTEM_PROMPT = """\
-You are a wildlife narrator in the spirit of David Attenborough and \
-Félix Rodríguez de la Fuente. You write warm, accessible prose that \
-invites readers to discover the world of birds.
-
-Your task: given a bird species name and reference data, write a short \
-entry for a daily "Bird of the Day" publication.
-
-STRICT RULES:
-- Use ONLY verifiable information. Do NOT fabricate data.
-- You MAY include well-known factual knowledge about the species \
-beyond the provided sources, but ONLY if you are certain of its accuracy.
-- If you lack sufficient information, write less — never invent more.
-- Do NOT cite sources or say "according to Wikipedia".
-- When mentioning other bird species, always use their full common \
-name on first mention.
-- Respond in {locale}.
-
-Output format (valid JSON, no markdown fences):
-{{
-  "prose": "Two paragraphs separated by \\n\\n. 800-1800 characters \
-total. First paragraph: introduce the species — habitat, behaviour \
-and what makes it remarkable. Second paragraph: curiosities, \
-surprising facts, cultural connections or ecological role. \
-Each paragraph should be 4-6 sentences.",
-  "identification": [
-    "Key visual or auditory trait for field identification",
-    "Another distinctive feature",
-    "3-5 bullets total"
-  ]
-}}"""
+_SYSTEM_PROMPT = (
+    "You are a wildlife narrator in the spirit of David Attenborough "
+    "and Félix Rodríguez de la Fuente. Your voice is warm, curious "
+    "and grounded in real observation. You make ornithology accessible "
+    "to a general audience without dumbing it down. You never fabricate facts."
+)
 
 
 @dataclass
@@ -88,9 +63,21 @@ def _truncate_context(text: str, budget: int) -> str:
 
 def _build_context(content: SpeciesContent) -> str:
     """Assemble scraped sources into a single context string within budget."""
+    # Label each source explicitly. The description may come from
+    # eBird or Wikipedia depending on what the scraper found.
+    source_label = {
+        "ebird": "eBird",
+        "wikipedia": "Wikipedia",
+    }.get(content.description_source, "Description")
+
     parts: list[tuple[str, str]] = []
     if content.description:
-        parts.append(("Description", content.description))
+        parts.append((source_label, content.description))
+    # Wikipedia summary is always captured independently of which
+    # source won the description slot. Avoid duplicating if the
+    # description already came from Wikipedia.
+    if content.wikipedia_summary and content.description_source != "wikipedia":
+        parts.append(("Wikipedia", content.wikipedia_summary))
     if content.bow_intro:
         parts.append(("Birds of the World", content.bow_intro))
     if content.fallback_text:
@@ -109,30 +96,66 @@ def _build_context(content: SpeciesContent) -> str:
 
 
 def _build_messages(
-    common_name: str,
+    english_name: str,
     scientific_name: str,
     content: SpeciesContent,
-    locale: str,
+    language_name: str,
     name_pairs: dict[str, str] | None = None,
 ) -> list[dict]:
-    """Build chat completions messages."""
+    """Build chat completions messages.
+
+    *english_name* is the English common name from the eBird taxonomy.
+    *language_name* is the full English name of the target language
+    (e.g. "Spanish", "Brazilian Portuguese"), not the ISO code.
+    """
     context = _build_context(content)
-    user_msg = (
-        f"Species: {common_name} ({scientific_name})\n\n"
-        f"Reference data:\n{context}"
-    )
-    # Provide localized species names so the LLM uses exact taxonomy names.
+
+    parts = [
+        f"Write a short entry about {english_name} ({scientific_name}) "
+        f"for a daily Bird of the Day publication.",
+        "",
+        "Rules:",
+        "- Use ONLY verifiable information. Do NOT fabricate data.",
+        "- You may add well-known facts beyond the reference data, "
+        "but only if you are certain they are accurate.",
+        "- If information is scarce, write less. Never invent.",
+        "- Do not cite sources or say things like 'according to Wikipedia'.",
+        "- When mentioning other bird species, use their full common "
+        "name on first mention.",
+        f"- Write entirely in {language_name}.",
+        "",
+        "Reference data:",
+        context,
+    ]
+
+    # Name pairs: English → locale, so the LLM uses exact taxonomy names.
     if name_pairs:
-        names_section = ", ".join(
-            sorted(set(name_pairs.values()))
-        )
-        user_msg += (
-            f"\n\nSpecies names in {locale}: {names_section}. "
-            f"Use these exact names when referring to these species."
-        )
+        pair_lines = [f"  {en} → {loc}" for en, loc in sorted(name_pairs.items())]
+        parts.append("")
+        parts.append(f"Species names in {language_name}:")
+        parts.extend(pair_lines)
+        parts.append("Use these exact names when referring to these species.")
+
+    # Output format at the end (closest to where the model generates).
+    parts.append("")
+    parts.append(
+        'Respond with valid JSON (no markdown fences, no commentary):\n'
+        '{\n'
+        '  "prose": "Two paragraphs separated by \\n\\n, '
+        '800-1800 characters total. '
+        'First: habitat, behaviour, what makes the species remarkable. '
+        'Second: curiosities, surprising facts, ecological role.",\n'
+        '  "identification": [\n'
+        '    "Visual or auditory trait for field identification",\n'
+        '    "Another distinctive feature",\n'
+        '    "3-5 bullets total"\n'
+        '  ]\n'
+        '}'
+    )
+
     return [
-        {"role": "system", "content": _SYSTEM_PROMPT.format(locale=locale)},
-        {"role": "user", "content": user_msg},
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": "\n".join(parts)},
     ]
 
 
@@ -225,11 +248,31 @@ def enrich_species(
         name_pairs = extract_name_pairs(
             context_text, english_name_index, code_to_localized
         )
-    # Always include the bird-of-the-day's own name.
-    name_pairs[scientific_name] = common_name
+    # Resolve English common name for the hero species.
+    english_name = common_name  # fallback if index unavailable
+    if english_name_index:
+        code_to_english = {c: n for n, c in english_name_index.items()}
+        english_name = code_to_english.get(species_code, common_name)
+
+    # Always include the hero's name pair.
+    if english_name != common_name:
+        name_pairs[english_name] = common_name
+
+    # Resolve the full language name (e.g. "Spanish" not "es").
+    from scripts import i18n as _i18n
+    try:
+        _en = _i18n.Catalog.load("en")
+        language_name = _en.t(f"language_name.{catalog.language}")
+    except Exception:
+        language_name = catalog.language
+
+    # Skip name pairs if locale is plain English (no variant) — the
+    # reference data and English names already match.
+    if catalog.language == "en":
+        name_pairs = {}
 
     messages = _build_messages(
-        common_name, scientific_name, content, catalog.language, name_pairs
+        english_name, scientific_name, content, language_name, name_pairs
     )
     result = _call_llm(messages, config)
     if result is None:

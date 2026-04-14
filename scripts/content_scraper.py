@@ -82,6 +82,8 @@ class SpeciesContent:
     description_source: str       # "ebird" | "wikipedia" | ""
     bow_intro: str
     taxonomy: dict
+    wikipedia_summary: str = ""   # Wikipedia REST summary (always captured
+                                  # when available, independent of description)
     wikipedia_url: str = ""       # canonical URL of the Wikipedia article
     wikipedia_language: str = ""  # "es" | "en" | "" (the lang we resolved to)
     fallback_text: str = ""       # rejected foreign-language text (e.g. EN
@@ -214,6 +216,7 @@ def scrape_species_content(
     scientific_name: str = "",
     catalog: "Catalog | None" = None,
     session: requests.Session | None = None,
+    max_description_chars: int = MAX_DESCRIPTION_CHARS,
 ) -> SpeciesContent:
     """Run the source chain and return the best content in the target language.
 
@@ -291,6 +294,12 @@ def scrape_species_content(
             wikipedia_language = "en"
             logger.info("Wikipedia URL fallback → en for %s", species_code)
 
+    # Always capture the Wikipedia summary for LLM context, even when
+    # eBird won the description slot.
+    wikipedia_summary = ""
+    if wiki_target and wiki_target.get("extract"):
+        wikipedia_summary = wiki_target["extract"]
+
     bow_intro = _fetch_bow_intro(species_code, sess, target_language)
 
     # GBIF distribution map. Best-effort: a failed lookup leaves the
@@ -304,10 +313,11 @@ def scrape_species_content(
     # Apply the layout rail uniformly to every source (including the
     # fallback text — it might end up rendered if foreign_fallback is on).
     raw_desc_len = len(description)
-    description = _truncate_at_sentence_boundary(description)
+    description = _truncate_at_sentence_boundary(description, max_description_chars)
     raw_bow_len = len(bow_intro)
-    bow_intro = _truncate_at_sentence_boundary(bow_intro)
-    fallback_text = _truncate_at_sentence_boundary(fallback_text)
+    bow_intro = _truncate_at_sentence_boundary(bow_intro, max_description_chars)
+    fallback_text = _truncate_at_sentence_boundary(fallback_text, max_description_chars)
+    wikipedia_summary = _truncate_at_sentence_boundary(wikipedia_summary, max_description_chars)
     if description and raw_desc_len != len(description):
         logger.info(
             "description: source=%s truncated %d → %d chars",
@@ -323,6 +333,7 @@ def scrape_species_content(
         description_source=description_source,
         bow_intro=bow_intro,
         taxonomy={},
+        wikipedia_summary=wikipedia_summary,
         wikipedia_url=wikipedia_url,
         wikipedia_language=wikipedia_language,
         fallback_text=fallback_text,
@@ -352,6 +363,7 @@ def load_cached_content(
         description_source=data.get("description_source", ""),
         bow_intro=data.get("bow_intro", ""),
         taxonomy=data.get("taxonomy", {}),
+        wikipedia_summary=data.get("wikipedia_summary", ""),
         wikipedia_url=data.get("wikipedia_url", ""),
         wikipedia_language=data.get("wikipedia_language", ""),
         fallback_text=data.get("fallback_text", ""),

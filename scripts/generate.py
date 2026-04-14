@@ -297,9 +297,6 @@ def _build_indexes(
     # Ensure the taxonomy is loaded (may not be if we're rebuilding
     # without going through the full selection pipeline).
     ebird_client.get_full_taxonomy(cache_dir=CACHE_DIR)
-    # Ensure the taxonomy is loaded (may not be if we're rebuilding
-    # without going through the full selection pipeline).
-    ebird_client.get_full_taxonomy(cache_dir=CACHE_DIR)
     code_to_localized = ebird_client.get_code_to_localized()
 
     published_anchors: dict[str, str] = {}
@@ -459,11 +456,17 @@ def _select_and_fetch(
         content = content_scraper.load_cached_content(species_code, str(CACHE_DIR))
         if content is None:
             logger.info("Scraping content for %s", species_code)
+            # In enriched mode, cache full text (LLM applies its own
+            # context budget). In programmatic mode, truncate for layout.
+            enriched = config.get("content_mode") == "enriched"
+            max_chars = (llm_enricher.MAX_CONTEXT_CHARS if enriched
+                         else content_scraper.MAX_DESCRIPTION_CHARS)
             content = content_scraper.scrape_species_content(
                 species_code,
                 scientific_name=species["sciName"],
                 catalog=catalog,
                 session=session,
+                max_description_chars=max_chars,
             )
             content_scraper.save_cached_content(species_code, content, str(CACHE_DIR))
         else:

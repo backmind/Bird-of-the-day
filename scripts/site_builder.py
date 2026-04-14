@@ -1214,9 +1214,7 @@ def _render_plate(
 """.strip()
 
 
-_ATLAS_BASEMAP_URL = (
-    "https://basemaps.cartocdn.com/light_nolabels/0/0/0@2x.png"
-)
+from scripts.map_composer import BASEMAP_URL as _ATLAS_BASEMAP_URL
 
 
 def _render_atlas(entry: SiteEntry, ctx: RenderContext, *, hero: bool = False) -> str:

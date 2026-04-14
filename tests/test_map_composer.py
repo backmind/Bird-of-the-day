@@ -1,6 +1,5 @@
 """Tests for map_composer — server-side map composition for RSS feeds."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PIL import Image

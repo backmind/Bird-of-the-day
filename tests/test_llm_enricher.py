@@ -52,8 +52,14 @@ class TestBuildContext:
     def test_combines_sources(self):
         content = _make_content()
         ctx = _build_context(content)
-        assert "[Description]" in ctx
+        assert "[eBird]" in ctx
         assert "[Birds of the World]" in ctx
+
+    def test_wikipedia_source_label(self):
+        content = _make_content(description_source="wikipedia")
+        ctx = _build_context(content)
+        assert "[Wikipedia]" in ctx
+        assert "[eBird]" not in ctx
 
     def test_skips_empty(self):
         content = _make_content(bow_intro="")
@@ -72,17 +78,24 @@ class TestBuildContext:
 class TestBuildMessages:
     def test_structure(self):
         content = _make_content()
-        msgs = _build_messages("Great Tit", "Parus major", content, "es")
+        msgs = _build_messages("Great Tit", "Parus major", content, "Spanish")
         assert len(msgs) == 2
         assert msgs[0]["role"] == "system"
         assert msgs[1]["role"] == "user"
         assert "Great Tit" in msgs[1]["content"]
         assert "Parus major" in msgs[1]["content"]
 
-    def test_locale_in_system(self):
+    def test_language_in_user(self):
         content = _make_content()
-        msgs = _build_messages("Mésange", "Parus major", content, "fr")
-        assert "fr" in msgs[0]["content"]
+        msgs = _build_messages("Mésange", "Parus major", content, "French")
+        assert "French" in msgs[1]["content"]
+
+    def test_name_pairs_in_user(self):
+        content = _make_content()
+        pairs = {"Great Tit": "Carbonero Común"}
+        msgs = _build_messages("Herrerillo", "Parus major", content, "Spanish", pairs)
+        assert "Great Tit" in msgs[1]["content"]
+        assert "Carbonero Común" in msgs[1]["content"]
 
 
 class TestEnrichSpecies:

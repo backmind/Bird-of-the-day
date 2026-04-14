@@ -23,8 +23,6 @@ import logging
 import sys
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
-from pathlib import Path
-
 from scripts import (
     content_scraper,
     ebird_client,
@@ -34,9 +32,7 @@ from scripts import (
     site_builder,
 )
 from scripts.generate import (
-    BASE_DIR,
     CACHE_DIR,
-    CONFIG_PATH,
     ENV_PATH,
     FEED_PATH,
     HISTORY_PATH,
