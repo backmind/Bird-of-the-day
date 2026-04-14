@@ -1,0 +1,47 @@
+{
+  "site.title": "Ave do Dia",
+  "site.eyebrow": "Caderno de campo · diário",
+  "site.tagline": "Uma nova espécie de ave todos os dias.",
+  "site.skip_to_content": "Saltar para o conteúdo",
+
+  "nav.principal_aria": "Principal",
+  "nav.home": "Hoje",
+  "nav.archive": "Arquivo",
+  "nav.rss": "RSS",
+  "theme_toggle.aria_label": "Alternar tema claro/escuro",
+
+  "subscribe.aria_label": "Subscrever RSS",
+  "subscribe.title": "Receba-a cada manhã no seu leitor RSS",
+  "subscribe.subtitle": "Uma nova espécie por dia.",
+  "subscribe.button": "Subscrever",
+
+  "section.recent": "Aves recentes",
+  "section.archive_title": "Arquivo",
+  "section.archive_subtitle": "Todas as aves publicadas até à data.",
+
+  "archive.empty": "O arquivo está vazio.",
+  "index.empty": "Ainda não há aves publicadas. Volte amanhã.",
+
+  "footer.data_credit_html": "Dados de <a href=\"https://ebird.org\" target=\"_blank\" rel=\"noopener\">eBird</a> e <a href=\"https://www.birds.cornell.edu/\" target=\"_blank\" rel=\"noopener\">Cornell Lab of Ornithology</a>.",
+  "footer.photos_credit_html": "Fotos de <a href=\"https://www.macaulaylibrary.org/\" target=\"_blank\" rel=\"noopener\">Macaulay Library</a>, © dos respetivos autores.",
+  "footer.author_template": "Projeto não comercial por <a href=\"https://yassfuentes.es\" target=\"_blank\" rel=\"noopener\">Yass Fuentes</a> © {year}.",
+  "footer.code_link_html": "<a href=\"https://github.com/backmind/Bird-of-the-day\" target=\"_blank\" rel=\"noopener\">Clona-me no GitHub</a>.",
+
+  "page.home_hero_title_template": "{name} — Ave do Dia",
+  "page.archive_title_template": "Arquivo — Ave do Dia",
+
+  "description.foreign_disclaimer": "Descrição em {source_language} (tradução em português indisponível).",
+  "description.empty_marker": "—",
+  "language_name.es": "espanhol",
+  "language_name.en": "inglês",
+  "language_name.fr": "francês",
+  "language_name.pt": "português",
+
+  "map.label": "Distribuição mundial",
+  "map.alt_template": "Distribuição mundial de {scientific_name} segundo o GBIF",
+
+  "feed.title": "Ave do Dia",
+  "feed.description": "Uma nova espécie de ave todos os dias.",
+  "feed.copyright_data_prefix": "Dados: eBird/Cornell Lab of Ornithology (ebird.org). Fotos: Macaulay Library, © dos respetivos autores. ",
+  "feed.copyright_author_template": "Feed © {year} Yass Fuentes, projeto não comercial."
+}

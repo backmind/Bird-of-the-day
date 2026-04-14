@@ -1,0 +1,47 @@
+{
+  "site.title": "Oiseau du Jour",
+  "site.eyebrow": "Carnet de terrain · quotidien",
+  "site.tagline": "Une nouvelle espèce d'oiseau chaque jour.",
+  "site.skip_to_content": "Aller au contenu",
+
+  "nav.principal_aria": "Principal",
+  "nav.home": "Aujourd'hui",
+  "nav.archive": "Archives",
+  "nav.rss": "RSS",
+  "theme_toggle.aria_label": "Changer de thème clair/sombre",
+
+  "subscribe.aria_label": "S'abonner au RSS",
+  "subscribe.title": "Recevez-le chaque matin dans votre lecteur RSS",
+  "subscribe.subtitle": "Une nouvelle espèce chaque jour.",
+  "subscribe.button": "S'abonner",
+
+  "section.recent": "Oiseaux récents",
+  "section.archive_title": "Archives",
+  "section.archive_subtitle": "Tous les oiseaux publiés à ce jour.",
+
+  "archive.empty": "Les archives sont vides.",
+  "index.empty": "Aucun oiseau publié pour le moment. Revenez demain.",
+
+  "footer.data_credit_html": "Données de <a href=\"https://ebird.org\" target=\"_blank\" rel=\"noopener\">eBird</a> et <a href=\"https://www.birds.cornell.edu/\" target=\"_blank\" rel=\"noopener\">Cornell Lab of Ornithology</a>.",
+  "footer.photos_credit_html": "Photos de <a href=\"https://www.macaulaylibrary.org/\" target=\"_blank\" rel=\"noopener\">Macaulay Library</a>, © leurs auteurs respectifs.",
+  "footer.author_template": "Projet non commercial par <a href=\"https://yassfuentes.es\" target=\"_blank\" rel=\"noopener\">Yass Fuentes</a> © {year}.",
+  "footer.code_link_html": "<a href=\"https://github.com/backmind/Bird-of-the-day\" target=\"_blank\" rel=\"noopener\">Clone-moi sur GitHub</a>.",
+
+  "page.home_hero_title_template": "{name} — Oiseau du Jour",
+  "page.archive_title_template": "Archives — Oiseau du Jour",
+
+  "description.foreign_disclaimer": "Description en {source_language} (traduction française non disponible).",
+  "description.empty_marker": "—",
+  "language_name.es": "espagnol",
+  "language_name.en": "anglais",
+  "language_name.fr": "français",
+  "language_name.pt": "portugais",
+
+  "map.label": "Répartition mondiale",
+  "map.alt_template": "Répartition mondiale de {scientific_name} d'après GBIF",
+
+  "feed.title": "Oiseau du Jour",
+  "feed.description": "Une nouvelle espèce d'oiseau chaque jour.",
+  "feed.copyright_data_prefix": "Données : eBird/Cornell Lab of Ornithology (ebird.org). Photos : Macaulay Library, © leurs auteurs respectifs. ",
+  "feed.copyright_author_template": "Flux © {year} Yass Fuentes, projet non commercial."
+}

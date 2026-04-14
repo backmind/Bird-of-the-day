@@ -1,0 +1,57 @@
+# Bird of the Day — one-command self-hosting via Docker Compose.
+#
+# Usage:
+#   1. Set EBIRD_API_KEY in your shell, or in a sibling .env file:
+#        echo "EBIRD_API_KEY=your_key" > .env
+#   2. docker compose up -d
+#   3. Open http://localhost:8080
+#
+# To use the published image instead of building locally, comment out
+# `build: .` and uncomment the `image: ghcr.io/...` line.
+
+services:
+  bird-of-the-day:
+    container_name: bird-of-the-day
+    build: .
+    # image: ghcr.io/backmind/bird-of-the-day:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      EBIRD_API_KEY: ${EBIRD_API_KEY:?set EBIRD_API_KEY in your shell or .env}
+      # Uncomment any of these to override individual config knobs without
+      # mounting a custom config.json. Complex structures like `pools`
+      # require mounting the file (see README → "Mounting a custom config").
+      # BOTD_LANGUAGE: en
+      # BOTD_DESCRIPTION_POLICY: foreign_fallback
+      # BOTD_FEED_LINK: https://example.com/birds/
+      # BOTD_CONTENT_MODE: enriched
+      # BOTD_LLM_API_KEY: ${BOTD_LLM_API_KEY:-}
+    volumes:
+      - botd-data:/var/lib/botd
+      # Optional: mount your own config.json without rebuilding the image
+      # - ./my-config.json:/app/data/config.json:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 5m
+      timeout: 10s
+      start_period: 2m
+      retries: 3
+
+    # Recommended hardening — comment out if your platform doesn't support
+    # any of these. The container runs fine without them too.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Uncomment for fully read-only root filesystem (with tmpfs for nginx
+    # writable dirs):
+    # read_only: true
+    # tmpfs:
+    #   - /tmp
+    #   - /var/log/nginx
+    #   - /var/lib/nginx
+    #   - /run/nginx
+
+volumes:
+  botd-data:

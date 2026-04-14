@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bird of the Day — preparing</title>
+  <meta name="theme-color" content="#F4EEE0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0F1518" media="(prefers-color-scheme: dark)">
+  <style>
+    :root {
+      --paper: #F4EEE0;
+      --ink: #1E2A2E;
+      --ink-soft: #5C6A6E;
+      --accent: #0E5F66;
+      --accent-warm: #B36B2F;
+      --rule: #C8BEA4;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0F1518;
+        --ink: #E9E2D0;
+        --ink-soft: #9AA4A4;
+        --accent: #5BB1B6;
+        --accent-warm: #D9893A;
+        --rule: #2A3338;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: ui-serif, Georgia, "Times New Roman", serif;
+      background: var(--paper);
+      color: var(--ink);
+      padding: 2rem;
+      text-align: center;
+    }
+    .card {
+      max-width: 32rem;
+    }
+    .bird {
+      width: 96px;
+      height: 56px;
+      margin: 0 auto 1.25rem;
+      opacity: .7;
+    }
+    h1 {
+      font-size: clamp(1.6rem, 3.5vw, 2.2rem);
+      font-weight: 600;
+      letter-spacing: -.01em;
+      margin: 0 0 .5rem;
+    }
+    p {
+      color: var(--ink-soft);
+      font-size: 1rem;
+      line-height: 1.6;
+      margin: 0 0 .5rem;
+    }
+    .ornament {
+      color: var(--accent-warm);
+      font-size: 1.1rem;
+      letter-spacing: .3em;
+      margin: 1.5rem 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <svg class="bird" viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M8 38 Q 30 8, 50 32 Q 70 8, 92 38" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+    </svg>
+    <h1>Bird of the Day</h1>
+    <p>The first species is being prepared.</p>
+    <p>Refresh in a moment.</p>
+    <div class="ornament">❦</div>
+  </div>
+</body>
+</html>

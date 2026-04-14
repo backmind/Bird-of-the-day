@@ -1,0 +1,47 @@
+{
+  "site.title": "Bird of the Day",
+  "site.eyebrow": "Field journal · daily",
+  "site.tagline": "A new bird species every day.",
+  "site.skip_to_content": "Skip to content",
+
+  "nav.principal_aria": "Primary",
+  "nav.home": "Today",
+  "nav.archive": "Archive",
+  "nav.rss": "RSS",
+  "theme_toggle.aria_label": "Toggle light/dark theme",
+
+  "subscribe.aria_label": "Subscribe via RSS",
+  "subscribe.title": "Get it in your RSS reader every morning",
+  "subscribe.subtitle": "A new species every day.",
+  "subscribe.button": "Subscribe",
+
+  "section.recent": "Recent birds",
+  "section.archive_title": "Archive",
+  "section.archive_subtitle": "Every bird published so far.",
+
+  "archive.empty": "The archive is empty.",
+  "index.empty": "No birds have been published yet. Come back tomorrow.",
+
+  "footer.data_credit_html": "Data from <a href=\"https://ebird.org\" target=\"_blank\" rel=\"noopener\">eBird</a> and <a href=\"https://www.birds.cornell.edu/\" target=\"_blank\" rel=\"noopener\">Cornell Lab of Ornithology</a>.",
+  "footer.photos_credit_html": "Photos from <a href=\"https://www.macaulaylibrary.org/\" target=\"_blank\" rel=\"noopener\">Macaulay Library</a>, © their respective authors.",
+  "footer.author_template": "Non-commercial project by <a href=\"https://yassfuentes.es\" target=\"_blank\" rel=\"noopener\">Yass Fuentes</a> © {year}.",
+  "footer.code_link_html": "<a href=\"https://github.com/backmind/Bird-of-the-day\" target=\"_blank\" rel=\"noopener\">Clone me on GitHub</a>.",
+
+  "page.home_hero_title_template": "{name} — Bird of the Day",
+  "page.archive_title_template": "Archive — Bird of the Day",
+
+  "description.foreign_disclaimer": "Description in {source_language} (no English translation available).",
+  "description.empty_marker": "—",
+  "language_name.es": "Spanish",
+  "language_name.en": "English",
+  "language_name.fr": "French",
+  "language_name.pt": "Portuguese",
+
+  "map.label": "World distribution",
+  "map.alt_template": "World distribution of {scientific_name} according to GBIF",
+
+  "feed.title": "Bird of the Day",
+  "feed.description": "A new bird species every day.",
+  "feed.copyright_data_prefix": "Data: eBird/Cornell Lab of Ornithology (ebird.org). Photos: Macaulay Library, © their respective authors. ",
+  "feed.copyright_author_template": "Feed © {year} Yass Fuentes, non-commercial project."
+}

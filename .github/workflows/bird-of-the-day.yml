@@ -1,0 +1,40 @@
+name: Bird of the Day
+
+on:
+  schedule:
+    - cron: '0 7 * * *'  # 07:00 UTC — adjust to your timezone
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Generate bird of the day
+        env:
+          EBIRD_API_KEY: ${{ secrets.EBIRD_API_KEY }}
+          BOTD_LLM_API_KEY: ${{ secrets.BOTD_LLM_API_KEY }}
+        run: uv run python -m scripts.generate
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f feed.xml history.json index.html archive.html cache/ maps/
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
+          git commit -m "🐦 Bird of the day: $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push

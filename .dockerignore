@@ -1,0 +1,54 @@
+# Git, CI metadata, editor and IDE state
+.git
+.github
+.gitignore
+.gitattributes
+.vscode
+.idea
+.claude
+
+# Python virtualenv and bytecode
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+build/
+dist/
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Secrets — never copy into the image
+.env
+.env.*
+!.env.example
+
+# Developer-only files (the seed_mock script + the working plan)
+scripts/seed_mock.py
+plan-*.md
+
+# Generated runtime artifacts — produced inside the volume at runtime,
+# never copied from the build context
+feed.xml
+index.html
+archive.html
+history.json
+cache/*.json
+cache/*.image.json
+!cache/.gitkeep
+
+# Docker meta — don't recurse into ourselves
+Dockerfile.dockerignore
+docker-compose*.yml
+.dockerignore
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Docs that don't need to enter the image
+README.md
+LICENSE

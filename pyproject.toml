@@ -1,0 +1,23 @@
+[project]
+name = "bird-of-the-day"
+version = "1.2.1"
+description = "Daily bird species RSS feed powered by eBird"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.31,<3",
+    "beautifulsoup4>=4.12,<5",
+    "langid>=1.1.6,<2",
+    "Pillow>=10.0,<12",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["scripts"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

@@ -1,0 +1,54 @@
+{
+  "language": "en",
+  "_language_help": "One of the languages with a catalog at data/i18n/{lang}.json. Default: es.",
+
+  "ebird_locale": null,
+  "_ebird_locale_help": "Optional override for the eBird API locale (e.g. 'pt_BR'). If null, derived from `language`.",
+
+  "description_policy": "foreign_fallback",
+  "_description_policy_help": "How to render descriptions when no source produces text in the configured language. One of: strict | foreign_fallback | skip. Default: foreign_fallback.",
+  "max_skip_retries": 50,
+
+  "pools": [
+    {
+      "id": "local",
+      "region": "US-NY",
+      "weight": 0.35,
+      "type": "regional"
+    },
+    {
+      "id": "country",
+      "region": "US",
+      "weight": 0.27,
+      "type": "regional"
+    },
+    {
+      "id": "europe",
+      "weight": 0.23,
+      "type": "europe_random",
+      "countries": ["PT", "FR", "IT", "DE", "GB", "GR", "SE", "NO", "PL"]
+    },
+    {
+      "id": "global",
+      "weight": 0.15,
+      "type": "global_taxonomy"
+    }
+  ],
+  "dedup_window": 50,
+  "max_feed_entries": 0,
+  "_max_feed_entries_help": "Maximum entries in feed.xml. 0 = unlimited (full history). Set via BOTD_MAX_FEED_ENTRIES for Docker.",
+  "back_days": 14,
+
+  "feed_link": "",
+  "_feed_link_help": "Base URL of your deployed site (e.g. 'https://birds.example.com/'). Used for absolute URLs in the RSS feed.",
+
+  "content_mode": "programmatic",
+  "_content_mode_help": "One of: programmatic (scrape-only, no LLM) | enriched (LLM generates cohesive text from scraped sources). Default: programmatic.",
+  "llm": {
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "model": "gemini-flash-latest",
+    "temperature": 0,
+    "max_retries": 2
+  },
+  "_llm_help": "OpenAI-compatible chat completions endpoint. API key via BOTD_LLM_API_KEY env var."
+}

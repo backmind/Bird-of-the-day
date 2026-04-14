@@ -1,0 +1,35 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/
+.idea/
+.claude/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Instance data (generated at runtime, not tracked in the template)
+data/config.json
+CNAME
+history.json
+feed.xml
+index.html
+archive.html
+cache/*
+!cache/.gitkeep
+maps/*
+!maps/.gitkeep
