@@ -19,6 +19,7 @@
   "section.archive_title": "Archive",
   "section.archive_subtitle": "Every bird published so far.",
 
+  "identification.label": "Field identification",
   "archive.empty": "The archive is empty.",
   "index.empty": "No birds have been published yet. Come back tomorrow.",
 

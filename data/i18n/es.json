@@ -19,6 +19,7 @@
   "section.archive_title": "Archivo",
   "section.archive_subtitle": "Todas las aves publicadas hasta la fecha.",
 
+  "identification.label": "Identificación en campo",
   "archive.empty": "El archivo está vacío.",
   "index.empty": "Aún no hay aves publicadas. Vuelve mañana.",
 

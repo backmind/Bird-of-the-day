@@ -434,17 +434,38 @@ main {
   line-height: 1.72;
   color: var(--ink);
   margin: 0 0 1rem;
+  text-align: justify;
   text-wrap: pretty;
+  hyphens: auto;
+}
+.plate-id-label {
+  font-family: 'Fraunces', Georgia, serif;
+  font-variation-settings: 'opsz' 9;
+  font-size: .72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .18em;
+  color: var(--accent-warm);
+  margin: 1.5rem 0 .6rem;
 }
 .plate-identification {
   font-size: .92rem;
   line-height: 1.65;
   color: var(--ink);
-  margin: -.4rem 0 1rem;
-  padding-left: 1.3rem;
+  margin: .4rem 0 1rem;
+  padding-left: 0;
+  list-style: none;
 }
 .plate-identification li {
-  margin-bottom: .25rem;
+  margin-bottom: .45rem;
+  padding-left: 1.2rem;
+  position: relative;
+}
+.plate-identification li::before {
+  content: '\2014';
+  position: absolute;
+  left: 0;
+  color: var(--accent-warm);
 }
 .plate-description-note {
   font-size: .82rem;
@@ -1099,9 +1120,11 @@ def _render_plate(
             )
             desc_html += f'<p class="plate-description">{processed}</p>'
         if entry.enriched_identification:
+            id_label = ctx.catalog.t("identification.label")
             bullets = "".join(
                 f"<li>{_esc(b)}</li>" for b in entry.enriched_identification
             )
+            desc_html += f'<p class="plate-id-label">{_esc(id_label)}</p>'
             desc_html += f'<ul class="plate-identification">{bullets}</ul>'
     elif entry.description:
         processed_desc = name_linker.process_description(
