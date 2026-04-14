@@ -388,7 +388,7 @@ def load_existing_feed(feed_path: str) -> list[FeedEntry]:
             )
 
         return entries
-    except Exception:
+    except (OSError, ET.ParseError, KeyError):
         logger.warning("Failed to parse existing feed at %s", feed_path, exc_info=True)
         return []
 

@@ -247,13 +247,11 @@ def _image_cache_path(species_code: str, cache_dir: str) -> Path:
 def load_cached_image(
     species_code: str, cache_dir: str = "cache"
 ) -> ImageResult | None:
-    path = _image_cache_path(species_code, cache_dir)
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        logger.warning("Invalid image cache for %s", species_code)
+    from scripts import load_json_cache
+    data = load_json_cache(
+        _image_cache_path(species_code, cache_dir), f"image cache for {species_code}"
+    )
+    if data is None:
         return None
     if not data.get("asset_id") and not data.get("url"):
         return None

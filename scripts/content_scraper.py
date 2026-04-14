@@ -350,13 +350,11 @@ def _content_cache_path(species_code: str, cache_dir: str) -> Path:
 def load_cached_content(
     species_code: str, cache_dir: str = "cache"
 ) -> SpeciesContent | None:
-    path = _content_cache_path(species_code, cache_dir)
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        logger.warning("Invalid content cache for %s, ignoring", species_code)
+    from scripts import load_json_cache
+    data = load_json_cache(
+        _content_cache_path(species_code, cache_dir), f"content cache for {species_code}"
+    )
+    if data is None:
         return None
     return SpeciesContent(
         description=data.get("description", data.get("ebird_description", "")),

@@ -267,7 +267,7 @@ def enrich_species(
     try:
         _en = _i18n.Catalog.load("en")
         language_name = _en.t(f"language_name.{catalog.language}")
-    except Exception:
+    except (OSError, json.JSONDecodeError, KeyError):
         language_name = catalog.language
 
     # Skip name pairs if locale is plain English (no variant) — the
@@ -312,13 +312,12 @@ def _enrichment_cache_path(species_code: str, cache_dir: str) -> Path:
 def load_cached_enrichment(
     species_code: str, cache_dir: str = "cache"
 ) -> EnrichedContent | None:
-    path = _enrichment_cache_path(species_code, cache_dir)
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        logger.warning("Invalid enrichment cache for %s, ignoring", species_code)
+    from scripts import load_json_cache
+    data = load_json_cache(
+        _enrichment_cache_path(species_code, cache_dir),
+        f"enrichment cache for {species_code}",
+    )
+    if data is None:
         return None
     return EnrichedContent(
         prose=data.get("prose", ""),

@@ -76,12 +76,9 @@ def _load_taxonomy_from_disk(
     path: Path, locale: str
 ) -> list[dict] | None:
     """Load a taxonomy cache file, validating locale and TTL."""
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        logger.warning("Invalid taxonomy cache at %s, ignoring", path)
+    from scripts import load_json_cache
+    data = load_json_cache(path, f"taxonomy cache at {path}")
+    if data is None:
         return None
 
     if data.get("locale") != locale:
