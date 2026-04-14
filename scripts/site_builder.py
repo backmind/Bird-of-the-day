@@ -441,7 +441,7 @@ main {
 .plate-id-label {
   font-family: 'Fraunces', Georgia, serif;
   font-variation-settings: 'opsz' 9;
-  font-size: .72rem;
+  font-size: .82rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .18em;
@@ -462,7 +462,7 @@ main {
   position: relative;
 }
 .plate-identification li::before {
-  content: '\2014';
+  content: '\u2014';
   position: absolute;
   left: 0;
   color: var(--accent-warm);
