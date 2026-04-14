@@ -137,7 +137,9 @@ def fetch_iucn_category(
 
     code = data.get("code", "")
     category = data.get("category", "")
-    iucn_taxon_id = data.get("iucnTaxonID", "")
+    # GBIF sometimes returns versioned IDs like "22735687_1"; BirdLife
+    # only accepts the base ID without the suffix.
+    iucn_taxon_id = data.get("iucnTaxonID", "").split("_")[0]
     if not code:
         return None
 

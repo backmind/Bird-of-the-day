@@ -489,6 +489,16 @@ main {
 .iucn-ex { background: #2e2e2e; }
 .iucn-dd { background: var(--ink-faint); }
 .iucn-ne { background: var(--rule-strong); }
+.iucn-badge-sm {
+  width: 1.1rem;
+  height: 1.1rem;
+  font-size: .5rem;
+  vertical-align: .1em;
+  margin-left: .3em;
+  cursor: inherit;
+}
+.iucn-badge-sm:hover { transform: none; box-shadow: 0 1px 2px rgba(30,42,46,.15); }
+.iucn-badge-sm::after { display: none; }
 
 .plate-description {
   font-size: 1.04rem;
@@ -1381,6 +1391,14 @@ def _render_card(entry: SiteEntry, ctx: RenderContext) -> str:
     if entry.taxonomy.get("familySciName"):
         family_tag = f'<p class="card-tag">{_esc(entry.taxonomy["familySciName"])}</p>'
 
+    card_iucn = ""
+    if entry.iucn_code:
+        card_iucn = (
+            f' <span class="iucn-badge iucn-badge-sm '
+            f'iucn-{entry.iucn_code.lower()}">'
+            f'{_esc(entry.iucn_code)}</span>'
+        )
+
     return f"""
 <article class="card">
   <a href="{_esc(entry.archive_url)}">
@@ -1390,7 +1408,7 @@ def _render_card(entry: SiteEntry, ctx: RenderContext) -> str:
       <span>{_esc(entry.date_dotted)}</span>
     </div>
     <h3 class="card-name">{_esc(entry.common_name)}</h3>
-    <p class="card-sci">{_esc(entry.scientific_name)}</p>
+    <p class="card-sci">{_esc(entry.scientific_name)}{card_iucn}</p>
     {family_tag}
   </a>
 </article>

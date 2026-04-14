@@ -102,23 +102,23 @@ def build_entry_html(
         f"<h2>{_esc(common_name)} — <em>{_esc(scientific_name)}</em></h2>"
     )
 
-    # Taxonomy + IUCN on one line
+    # Taxonomy + IUCN on one line, separated by //
     family_sci = taxonomy.get("familySciName", "")
     order = taxonomy.get("order", "")
-    tag_parts = [f"<em>{_esc(p)}</em>" for p in (family_sci, order) if p]
+    tax_parts = [f"<em>{_esc(p)}</em>" for p in (family_sci, order) if p]
+    line = " · ".join(tax_parts)
     if iucn_code:
         iucn_label = catalog.t(f"iucn.{iucn_code}")
         if iucn_birdlife_url:
-            tag_parts.append(
+            iucn_html = (
                 f'<a href="{_esc(iucn_birdlife_url)}" '
                 f'style="color:inherit">{_esc(iucn_label)}</a>'
             )
         else:
-            tag_parts.append(_esc(iucn_label))
-    if tag_parts:
-        parts.append(
-            f'<p><small>{" · ".join(tag_parts)}</small></p>'
-        )
+            iucn_html = _esc(iucn_label)
+        line = f"{line} // {iucn_html}" if line else iucn_html
+    if line:
+        parts.append(f'<p><small>{line}</small></p>')
 
     # Description: enriched (LLM) or programmatic (scraped).
     _eni = english_name_index or {}
