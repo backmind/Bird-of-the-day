@@ -1,6 +1,5 @@
 # Bird of the Day
 
-[![Bird of the Day](https://github.com/backmind/Bird-of-the-day/actions/workflows/bird-of-the-day.yml/badge.svg)](https://github.com/backmind/Bird-of-the-day/actions/workflows/bird-of-the-day.yml)
 [![Docker publish](https://github.com/backmind/Bird-of-the-day/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/backmind/Bird-of-the-day/actions/workflows/docker-publish.yml)
 [![Release](https://img.shields.io/github/v/release/backmind/Bird-of-the-day?display_name=tag&sort=semver)](https://github.com/backmind/Bird-of-the-day/releases/latest)
 [![Container](https://img.shields.io/badge/ghcr.io-bird--of--the--day-blue?logo=docker&logoColor=white)](https://github.com/backmind/Bird-of-the-day/pkgs/container/bird-of-the-day)
