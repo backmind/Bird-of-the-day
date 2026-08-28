@@ -114,7 +114,6 @@ _ENV_OVERRIDES: dict[str, tuple[str, type]] = {
     "BOTD_MAX_FEED_ENTRIES": ("max_feed_entries", int),
     "BOTD_BACK_DAYS": ("back_days", int),
     "BOTD_FEED_LINK": ("feed_link", str),
-    "BOTD_CONTENT_MODE": ("content_mode", str),
 }
 
 logging.basicConfig(
@@ -167,6 +166,13 @@ def load_config() -> dict:
                 "ignoring %s=%r (cast to %s failed: %s)",
                 env_name, raw_value, caster.__name__, e,
             )
+
+    if "content_mode" in config:
+        logger.warning(
+            "config key 'content_mode' is deprecated and ignored; the "
+            "pipeline enriches via LLM whenever one is configured"
+        )
+        config.pop("content_mode")
 
     known = i18n.discover_languages()
     if known and config["language"] not in known:
@@ -464,9 +470,9 @@ def _select_and_fetch(
         content = content_scraper.load_cached_content(species_code, str(CACHE_DIR))
         if content is None:
             logger.info("Scraping content for %s", species_code)
-            # In enriched mode, cache full text (LLM applies its own
-            # context budget). In programmatic mode, truncate for layout.
-            enriched = config.get("content_mode") == "enriched"
+            # When an LLM is configured, cache full text (LLM applies its
+            # own context budget). Otherwise, truncate for layout.
+            enriched = llm_enricher.is_configured(config)
             max_chars = (llm_enricher.MAX_CONTEXT_CHARS if enriched
                          else content_scraper.MAX_DESCRIPTION_CHARS)
             content = content_scraper.scrape_species_content(
@@ -549,9 +555,8 @@ def main() -> None:
         common_name = species["comName"]
         scientific_name = species["sciName"]
 
-        # 2. LLM enrichment (when content_mode is "enriched").
-        content_mode = config.get("content_mode", "programmatic")
-        if content_mode == "enriched":
+        # 2. LLM enrichment: always attempted when an LLM is configured.
+        if llm_enricher.is_configured(config):
             enriched = llm_enricher.load_cached_enrichment(
                 species_code, str(CACHE_DIR)
             )

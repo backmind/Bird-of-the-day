@@ -42,8 +42,6 @@
   "feed_link": "",
   "_feed_link_help": "Base URL of your deployed site (e.g. 'https://birds.example.com/'). Used for absolute URLs in the RSS feed.",
 
-  "content_mode": "programmatic",
-  "_content_mode_help": "One of: programmatic (scrape-only, no LLM) | enriched (LLM generates cohesive text from scraped sources). Default: programmatic.",
   "llm": {
     "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
     "model": "gemini-flash-latest",

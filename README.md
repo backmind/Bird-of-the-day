@@ -136,7 +136,6 @@ Every behavior knob lives here. Annotated example:
 
   "feed_link": "https://YOUR-USERNAME.github.io/Bird-of-the-day/",
 
-  "content_mode": "programmatic",
   "llm": {
     "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
     "model": "gemini-flash-latest",
@@ -265,11 +264,12 @@ and overrides it if set:
 | `BOTD_MAX_FEED_ENTRIES` | `max_feed_entries` | `60` |
 | `BOTD_BACK_DAYS` | `back_days` | `14` |
 | `BOTD_FEED_LINK` | `feed_link` | `https://example.com/birds/` |
-| `BOTD_CONTENT_MODE` | `content_mode` | `programmatic`, `enriched` |
 
-`EBIRD_API_KEY` is required. `BOTD_LLM_API_KEY` is needed only when
-`content_mode` is `enriched`. The container does **not** read `.env`
-files (it doesn't need to — env vars work everywhere).
+`EBIRD_API_KEY` is required. LLM enrichment runs whenever
+`llm.endpoint`, `llm.models` and the `BOTD_LLM_API_KEY` env var are
+all set; otherwise the site renders the scraped descriptions
+directly. The container does **not** read `.env` files (it doesn't
+need to — env vars work everywhere).
 
 #### Secrets via files (Docker / Kubernetes secrets)
 

@@ -1,12 +1,12 @@
 """LLM-based content enrichment for Bird of the Day.
 
-When ``content_mode`` is ``enriched``, this module sends scraped species
-data to an OpenAI-compatible chat completions endpoint and receives a
-cohesive, accessible text with field identification tips.
+Whenever an LLM is configured (see ``is_configured``), this module sends
+scraped species data to an OpenAI-compatible chat completions endpoint and
+receives a cohesive, accessible text with field identification tips.
 
 The enriched content is cached as ``cache/{code}.enriched.json`` so the
 LLM is called at most once per species. If the API call fails after
-retries, the caller falls back to the programmatic (scrape-only) mode.
+retries, the caller falls back to the scraped (non-enriched) content.
 """
 
 from __future__ import annotations
@@ -39,6 +39,30 @@ _SYSTEM_PROMPT = (
     "and grounded in real observation. You make ornithology accessible "
     "to a general audience without dumbing it down. You never fabricate facts."
 )
+
+
+def _resolve_models(config: dict) -> list[str]:
+    """Return the configured model chain, newest config shape first.
+
+    ``llm.models`` (list, tried in order) wins; the legacy singular
+    ``llm.model`` is accepted as a one-element chain.
+    """
+    llm_cfg = config.get("llm") or {}
+    models = llm_cfg.get("models")
+    if isinstance(models, list) and models:
+        return [str(m) for m in models if m]
+    model = llm_cfg.get("model", "")
+    return [str(model)] if model else []
+
+
+def is_configured(config: dict) -> bool:
+    """True when enrichment can run: endpoint, model chain and API key."""
+    llm_cfg = config.get("llm") or {}
+    return bool(
+        llm_cfg.get("endpoint")
+        and _resolve_models(config)
+        and os.environ.get("BOTD_LLM_API_KEY")
+    )
 
 
 @dataclass
