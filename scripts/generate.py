@@ -343,6 +343,9 @@ def _rebuild_feed(
         str(CACHE_DIR),
         MAPS_DIR,
     )
+    basemap_url = (
+        f"{feed_link.rstrip('/')}/assets/basemap.png" if feed_link else ""
+    )
 
     all_feed_entries: list[feed_builder.FeedEntry] = []
     for raw in reversed(history["entries"]):
@@ -384,6 +387,7 @@ def _rebuild_feed(
             distribution_map_url=fco.distribution_map_url,
             gbif_taxon_key=fco.gbif_taxon_key,
             composed_map_url=composed_map_url,
+            basemap_url=basemap_url,
             iucn_code=fco.iucn_code,
             iucn_birdlife_url=fco.iucn_birdlife_url,
             enriched_prose=fen.prose if fen else "",

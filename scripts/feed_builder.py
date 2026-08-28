@@ -61,6 +61,7 @@ def build_entry_html(
     distribution_map_url: str = "",
     gbif_taxon_key: int | None = None,
     composed_map_url: str = "",
+    basemap_url: str = "",
     iucn_code: str = "",
     iucn_birdlife_url: str = "",
     enriched_prose: str = "",
@@ -180,16 +181,19 @@ def build_entry_html(
             )
         else:
             # Fallback: two-layer CSS overlay (works in browsers, not
-            # all RSS readers).
-            basemap = "https://basemaps.cartocdn.com/light_nolabels/0/0/0@2x.png"
+            # all RSS readers). The basemap layer only renders when a
+            # published basemap URL is available.
+            basemap_layer = (
+                f'<img src="{_esc(basemap_url)}" alt="" '
+                'style="position:absolute;top:0;left:0;width:100%;height:100%;'
+                'filter:sepia(.45) saturate(.7) contrast(.95)" />'
+            ) if basemap_url else ""
             parts.append(
                 '<figure style="margin:1.5rem auto;padding:.85rem;'
                 'border:1px solid #C8BEA4;background:#ECE2CC;max-width:480px;text-align:center">'
                 f'<a href="{_esc(species_page)}" style="display:block;text-decoration:none;border:0;'
                 'position:relative;width:100%;padding-bottom:100%;overflow:hidden">'
-                f'<img src="{_esc(basemap)}" alt="" '
-                'style="position:absolute;top:0;left:0;width:100%;height:100%;'
-                'filter:sepia(.45) saturate(.7) contrast(.95)" />'
+                f'{basemap_layer}'
                 f'<img src="{_esc(distribution_map_url)}" '
                 f'alt="{_esc(map_alt)}" '
                 'style="position:absolute;top:0;left:0;width:100%;height:100%;'
