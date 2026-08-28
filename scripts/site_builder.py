@@ -9,6 +9,7 @@ entry from history with full content and stable anchors.
 from __future__ import annotations
 
 import logging
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1314,7 +1315,7 @@ def _render_plate(
 """.strip()
 
 
-from scripts.map_composer import BASEMAP_URL as _ATLAS_BASEMAP_URL
+from scripts.map_composer import BASEMAP_PATH as _BASEMAP_ASSET
 
 
 def _render_atlas(entry: SiteEntry, ctx: RenderContext, *, hero: bool = False) -> str:
@@ -1324,8 +1325,8 @@ def _render_atlas(entry: SiteEntry, ctx: RenderContext, *, hero: bool = False) -
     set, so the renderer can drop the section silently for species
     without a GBIF match (recent splits, very obscure endemics).
 
-    The atlas frame composites two layers: a Carto basemaps tile (the
-    continents) and the GBIF density tile (the colored occurrence
+    The atlas frame composites two layers: the published static basemap
+    (the continents) and the GBIF density tile (the colored occurrence
     hexagons) stacked on top. Both share the same mercator z=0/0/0
     extent so they align pixel-perfectly. Without the basemap layer
     the GBIF tile is just dots floating on transparency — confusing.
@@ -1350,12 +1351,12 @@ def _render_atlas(entry: SiteEntry, ctx: RenderContext, *, hero: bool = False) -
     <span class="atlas-title">{_esc(label)}</span>
   </header>
   <a class="atlas-frame" href="{_esc(species_page)}"{"" if hero else ' target="_blank" rel="noopener"'} aria-label="{_esc(entry.scientific_name)} — GBIF">
-    <img class="atlas-base" src="{_ATLAS_BASEMAP_URL}" alt="" loading="lazy" />
+    <img class="atlas-base" src="assets/basemap.png" alt="" loading="lazy" />
     <img class="atlas-data" src="{_esc(entry.distribution_map_url)}" alt="{_esc(alt)}" loading="lazy" />
     <span class="atlas-equator" aria-hidden="true"></span>
     <span class="atlas-meridian" aria-hidden="true"></span>
     <span class="atlas-legend" aria-hidden="true"><span>−</span><span class="atlas-legend-bar"></span><span>+</span></span>
-    <span class="atlas-attribution">© OSM · CARTO · GBIF</span>
+    <span class="atlas-attribution">&copy; OpenStreetMap &middot; GBIF</span>
   </a>
   <footer class="atlas-scale" aria-hidden="true">
     <span>180°W</span>
@@ -1542,6 +1543,14 @@ def write_site(
         published_anchors=published_anchors or {},
     )
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Publish the static basemap next to the pages so the atlas sections
+    # never depend on a third-party tile server.
+    assets_dir = output_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copyfile(_BASEMAP_ASSET, assets_dir / "basemap.png")
+    except OSError:
+        logger.warning("Could not publish basemap asset from %s", _BASEMAP_ASSET)
     index_html = build_index(entries, ctx)
     archive_html = build_archive(entries, ctx)
     (output_dir / "index.html").write_text(index_html, encoding="utf-8")
