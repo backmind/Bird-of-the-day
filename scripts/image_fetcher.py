@@ -18,6 +18,8 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
+from scripts import http_client
+
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 15
@@ -62,14 +64,12 @@ def new_session(accept_language: str = DEFAULT_ACCEPT_LANGUAGE) -> requests.Sess
     the configured language's quality string (typically from
     ``catalog.accept_language_header``). Default is English so the function
     is usable as a standalone helper without an i18n catalog.
+
+    Built on ``http_client.build_session`` so every scrape shares the same
+    retry policy.
     """
-    s = requests.Session()
-    s.headers.update(
-        {
-            "User-Agent": USER_AGENT,
-            "Accept-Language": accept_language,
-        }
-    )
+    s = http_client.build_session(accept_language=accept_language)
+    s.headers["User-Agent"] = USER_AGENT
     return s
 
 
