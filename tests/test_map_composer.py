@@ -44,7 +44,7 @@ class TestComposeMap:
 
         out = tmp_path / "maps" / "test.png"
 
-        with patch("scripts.map_composer._download_image", return_value=density):
+        with patch("scripts.map_composer.download_image", return_value=density):
             ok = compose_map("http://fake/density.png", out, basemap_image=basemap)
 
         assert ok is True
@@ -56,34 +56,43 @@ class TestComposeMap:
         basemap = _make_rgba()
         out = tmp_path / "fail.png"
 
-        with patch("scripts.map_composer._download_image", return_value=None):
+        with patch("scripts.map_composer.download_image", return_value=None):
             ok = compose_map("http://fake/density.png", out, basemap_image=basemap)
 
         assert ok is False
         assert not out.exists()
 
-    def test_no_basemap_downloads_it(self, tmp_path):
+    def test_no_basemap_loads_local_asset(self, tmp_path):
         fake_basemap = _make_rgba(size=(8, 8), color=(200, 200, 200, 255))
         fake_density = _make_rgba(size=(8, 8), color=(255, 0, 0, 128))
         out = tmp_path / "test.png"
 
-        def side_effect(url, session=None):
-            if "basemap" in url or "carto" in url:
-                return fake_basemap
-            return fake_density
-
-        with patch("scripts.map_composer._download_image", side_effect=side_effect):
-            with patch("scripts.map_composer.BASEMAP_URL", "http://carto/basemap.png"):
+        with patch("scripts.map_composer.download_image", return_value=fake_density):
+            with patch("scripts.map_composer.load_basemap", return_value=fake_basemap):
                 ok = compose_map("http://fake/density.png", out)
 
         assert ok is True
+
+    def test_missing_local_asset_fails_gracefully(self, tmp_path):
+        out = tmp_path / "test.png"
+        with patch("scripts.map_composer.load_basemap", return_value=None):
+            ok = compose_map("http://fake/density.png", out)
+        assert ok is False
+        assert not out.exists()
+
+    def test_real_committed_asset_loads(self):
+        from scripts.map_composer import load_basemap
+        img = load_basemap()
+        assert img is not None
+        assert img.mode == "RGBA"
+        assert img.size[0] == img.size[1]  # square world tile
 
     def test_resizes_density_to_match_basemap(self, tmp_path):
         basemap = _make_rgba(size=(8, 8), color=(200, 200, 200, 255))
         density = _make_rgba(size=(4, 4), color=(255, 0, 0, 128))
         out = tmp_path / "test.png"
 
-        with patch("scripts.map_composer._download_image", return_value=density):
+        with patch("scripts.map_composer.download_image", return_value=density):
             ok = compose_map("http://fake/density.png", out, basemap_image=basemap)
 
         assert ok is True
@@ -126,10 +135,14 @@ class TestEnsureComposedMaps:
             mock_content.distribution_map_url = "http://gbif/map.png"
             mock_cs.load_cached_content.return_value = mock_content
 
-            with patch("scripts.map_composer._download_image", return_value=fake_img):
-                result = ensure_composed_maps(
-                    entries, str(cache_dir), maps_dir
-                )
+            with patch("scripts.map_composer.download_image", return_value=fake_img):
+                with patch(
+                    "scripts.map_composer.load_basemap",
+                    return_value=_make_rgba(size=(8, 8)),
+                ):
+                    result = ensure_composed_maps(
+                        entries, str(cache_dir), maps_dir
+                    )
 
         assert "bird1" in result
         assert result["bird1"] == "maps/bird1.png"

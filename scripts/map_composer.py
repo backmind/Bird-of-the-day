@@ -2,41 +2,39 @@
 
 RSS readers don't support CSS positioning, so the two-layer overlay used
 by the frontend (Carto basemap + GBIF density tile) shows as two stacked
-images. This module downloads both tiles, alpha-composites them into a
-single PNG with approximate sepia/saturate/contrast filters matching the
-site's CSS, and saves the result for embedding in the feed.
+images. This module loads the committed basemap asset, downloads the
+density tile, alpha-composites them into a single PNG with approximate
+sepia/saturate/contrast filters matching the site's CSS, and saves the
+result for embedding in the feed.
 """
 
 from __future__ import annotations
 
 import logging
-from io import BytesIO
 from pathlib import Path
 
 import requests
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFont
 
 from scripts import content_scraper
+from scripts.http_client import download_image
 
 logger = logging.getLogger(__name__)
 
-REQUEST_TIMEOUT = 15
+# Committed static world tile (EPSG:3857, z0), GBIF gbif-light style.
+# Same mercator grid as the GBIF density tiles, so the two layers align
+# pixel-perfectly. No tile server involved at runtime.
+BASEMAP_PATH = Path(__file__).resolve().parent.parent / "data" / "assets" / "basemap@2x.png"
 
-BASEMAP_URL = "https://basemaps.cartocdn.com/light_nolabels/0/0/0@2x.png"
 
-
-def _download_image(
-    url: str, session: requests.Session | None = None
-) -> Image.Image | None:
-    """Download a PNG from *url* and return it as an RGBA PIL Image."""
-    sess = session or requests.Session()
+def load_basemap() -> Image.Image | None:
+    """Load the committed basemap asset as RGBA, or None if unreadable."""
     try:
-        resp = sess.get(url, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        img = Image.open(BytesIO(resp.content))
+        img = Image.open(BASEMAP_PATH)
+        img.load()
         return img.convert("RGBA")
-    except (requests.RequestException, OSError):
-        logger.warning("Failed to download image from %s", url, exc_info=True)
+    except OSError:
+        logger.error("Basemap asset missing or unreadable at %s", BASEMAP_PATH)
         return None
 
 
@@ -185,18 +183,19 @@ def compose_map(
 ) -> bool:
     """Compose basemap + density tile into a single PNG.
 
-    *basemap_image* allows reusing a pre-downloaded basemap across
-    calls. When ``None``, the basemap is downloaded fresh.
+    *basemap_image* allows reusing an already-loaded basemap across
+    calls. When ``None``, the basemap is loaded from the committed
+    local asset.
 
     Returns ``True`` on success, ``False`` on failure.
     """
     if basemap_image is None:
-        basemap_image = _download_image(BASEMAP_URL, session)
+        basemap_image = load_basemap()
     if basemap_image is None:
-        logger.warning("Cannot compose map: basemap download failed")
+        logger.warning("Cannot compose map: basemap load failed")
         return False
 
-    density = _download_image(distribution_map_url, session)
+    density = download_image(distribution_map_url, session)
     if density is None:
         logger.warning("Cannot compose map: density tile download failed")
         return False
@@ -225,7 +224,7 @@ def ensure_composed_maps(
     Skips entries that already have a composed map on disk or that
     lack a ``distribution_map_url`` in their cached content.
 
-    Downloads the basemap once and reuses it for all compositions.
+    Loads the basemap once and reuses it for all compositions.
 
     Returns a dict mapping ``species_code`` to the relative path
     (e.g. ``"maps/norshr1.png"``).
@@ -248,12 +247,12 @@ def ensure_composed_maps(
         if content is None or not content.distribution_map_url:
             continue
 
-        # Lazy-download basemap on first actual composition.
+        # Lazy-load the committed basemap on first actual composition.
         if basemap is None:
-            basemap = _download_image(BASEMAP_URL, session)
+            basemap = load_basemap()
             if basemap is None:
                 logger.warning(
-                    "Basemap download failed; skipping all map compositions"
+                    "Basemap asset unavailable; skipping all map compositions"
                 )
                 return result
 
