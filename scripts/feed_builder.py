@@ -61,7 +61,6 @@ def build_entry_html(
     distribution_map_url: str = "",
     gbif_taxon_key: int | None = None,
     composed_map_url: str = "",
-    basemap_url: str = "",
     iucn_code: str = "",
     iucn_birdlife_url: str = "",
     enriched_prose: str = "",
@@ -69,57 +68,79 @@ def build_entry_html(
     english_name_index: dict | None = None,
     code_to_localized: dict | None = None,
     published_anchors: dict | None = None,
+    number: int = 0,
+    date: str = "",
+    species_page_url: str = "",
 ) -> str:
-    """Build rich HTML content for an RSS entry.
+    """Build the HTML body of one RSS item.
 
-    All user-supplied data is HTML-escaped. All chrome strings come from
-    the catalog. The link list mirrors the front's plate-foot order:
-    eBird → Wikipedia (if found) → Birds of the World → Macaulay Library.
+    Built out of semantic elements with almost no inline styling. Feed
+    readers re-style what they receive and many strip style attributes
+    outright, so hierarchy has to live in the elements themselves: a
+    heading is an ``<h3>``, a list is a ``<ul>``, the map is a
+    ``<figure>``. Colours are never declared, so the item inherits the
+    reader's own light or dark theme instead of fighting it.
+
+    The order of the parts is fixed by the project's design: head line,
+    photo, credit, name, taxonomy and conservation status, prose,
+    identification, map, sources. All user-supplied data is escaped and
+    all chrome comes from the catalog.
     """
     parts: list[str] = []
     code_e = _esc(species_code)
     ebird_url = f"https://ebird.org/species/{code_e}?siteLanguage={catalog.language}"
+    # The photo takes the reader to the same place the item's <link>
+    # does: our own species page, which never rots. Without a configured
+    # feed_link there is no absolute URL to point at, so it degrades to
+    # eBird rather than emitting a path no reader could resolve.
+    photo_target = _esc(species_page_url) if species_page_url else ebird_url
 
-    # Image
+    # Head line: the same publication number and dotted date the web
+    # plate shows, so an item and its page are recognisably the same
+    # thing.
+    head_bits: list[str] = []
+    if number:
+        head_bits.append(f"№ {number}")
+    if date:
+        head_bits.append(_esc(date.replace("-", " · ")))
+    if head_bits:
+        parts.append(f"<p><small>{' · '.join(head_bits)}</small></p>")
+
+    # Photo, then its credit on its own line.
     if image_url:
         parts.append(
-            f'<a href="{ebird_url}">'
-            f'<img src="{_esc(image_url)}" '
-            f'alt="{_esc(common_name)} © {_esc(image_attribution)}" '
-            f'style="max-width:100%; border-radius:8px;" />'
-            f'</a>'
+            f'<p><a href="{photo_target}">'
+            f'<img src="{_esc(image_url)}" alt="{_esc(common_name)}" '
+            f'style="max-width:100%;height:auto" /></a></p>'
         )
         parts.append(
-            f'<p style="font-size:.78rem;font-style:italic;color:#5C6A6E">'
-            f'© {_esc(image_attribution)}</p>'
+            f"<p><small><em>© {_esc(image_attribution)}</em></small></p>"
         )
     else:
-        parts.append(
-            f'<p><a href="{_esc(ml_search_url)}">Macaulay Library</a></p>'
-        )
+        parts.append(f'<p><a href="{_esc(ml_search_url)}">Macaulay Library</a></p>')
 
-    # Name + scientific name
+    # Name + scientific name.
     parts.append(
         f"<h2>{_esc(common_name)} — <em>{_esc(scientific_name)}</em></h2>"
     )
 
-    # Taxonomy + IUCN on one line, separated by //
+    # Taxonomy and conservation status on one line. The two separator
+    # levels are deliberate: "·" joins things of the same kind, "//"
+    # marks the change of register from taxonomy to conservation. In a
+    # reader that strips styling they are the only hierarchy left. The
+    # link sits on the IUCN code, mirroring the badge on the web.
     family_sci = taxonomy.get("familySciName", "")
     order = taxonomy.get("order", "")
     tax_parts = [f"<em>{_esc(p)}</em>" for p in (family_sci, order) if p]
     line = " · ".join(tax_parts)
     if iucn_code:
-        iucn_label = catalog.t(f"iucn.{iucn_code}")
+        code_html = _esc(iucn_code)
         if iucn_birdlife_url:
-            iucn_html = (
-                f'<a href="{_esc(iucn_birdlife_url)}" '
-                f'style="color:inherit">{_esc(iucn_label)}</a>'
-            )
-        else:
-            iucn_html = _esc(iucn_label)
+            code_html = f'<a href="{_esc(iucn_birdlife_url)}">{code_html}</a>'
+        iucn_html = f"{code_html} · {_esc(catalog.t(f'iucn.{iucn_code}'))}"
         line = f"{line} // {iucn_html}" if line else iucn_html
     if line:
-        parts.append(f'<p><small>{line}</small></p>')
+        parts.append(f"<p><small>{line}</small></p>")
 
     # Description: enriched (LLM) or programmatic (scraped).
     _eni = english_name_index or {}
@@ -131,6 +152,10 @@ def build_entry_html(
                 f"<p>{name_linker.process_description(para, _eni, _c2l, _pa, catalog.language)}</p>"
             )
         if enriched_identification:
+            # The heading the front has always had and the feed never
+            # did: without it the bullets hang off the prose with no
+            # indication of what they are.
+            parts.append(f'<h3>{_esc(catalog.t("identification.label"))}</h3>')
             bullets = "".join(f"<li>{_esc(b)}</li>" for b in enriched_identification)
             parts.append(f"<ul>{bullets}</ul>")
     else:
@@ -149,89 +174,44 @@ def build_entry_html(
                 f"<p>{name_linker.process_description(bow_intro, _eni, _c2l, _pa, catalog.language)}</p>"
             )
 
-    # GBIF distribution map. When a pre-composed PNG is available (basemap
-    # + density tile baked into one image with filters), use a single <img>
-    # for maximum RSS reader compatibility. Fall back to the two-layer CSS
-    # overlay when no composed image exists.
-    if composed_map_url or distribution_map_url:
-        map_label = catalog.t("map.label")
+    # GBIF distribution map. The pre-composed PNG (basemap and density
+    # baked into one image) is what every reader can render; when
+    # composition has not happened yet the density layer goes out on its
+    # own. The old two-layer version stacked images with absolute
+    # positioning, which no feed reader honours and which collapses into
+    # two unrelated pictures wherever styles are stripped.
+    map_url = composed_map_url or distribution_map_url
+    if map_url:
         map_alt = catalog.t("map.alt_template", scientific_name=scientific_name)
-        species_page = (
+        map_target = (
             f"https://www.gbif.org/species/{gbif_taxon_key}"
             if gbif_taxon_key
-            else _esc(distribution_map_url or composed_map_url)
+            else map_url
+        )
+        parts.append(
+            '<figure style="margin:1.5rem 0;text-align:center">'
+            f'<a href="{_esc(map_target)}">'
+            f'<img src="{_esc(map_url)}" alt="{_esc(map_alt)}" '
+            'style="max-width:100%;height:auto" />'
+            '</a>'
+            f'<figcaption><small>{_esc(catalog.t("map.label"))}</small></figcaption>'
+            '</figure>'
         )
 
-        if composed_map_url:
-            # Single pre-composed image — works in all RSS readers.
-            parts.append(
-                '<figure style="margin:1.5rem auto;padding:.85rem;'
-                'border:1px solid #C8BEA4;background:#ECE2CC;max-width:480px;text-align:center">'
-                f'<a href="{_esc(species_page)}" style="display:block;text-decoration:none;border:0">'
-                f'<img src="{_esc(composed_map_url)}" '
-                f'alt="{_esc(map_alt)}" '
-                'style="max-width:100%;border-radius:4px" />'
-                '</a>'
-                '<figcaption style="margin-top:.55rem;'
-                'font-family:Georgia,serif;font-size:.72rem;color:#5C6A6E;'
-                'letter-spacing:.14em;text-transform:uppercase">'
-                f'{_esc(map_label)}'
-                '</figcaption>'
-                '</figure>'
-            )
-        else:
-            # Fallback: two-layer CSS overlay (works in browsers, not
-            # all RSS readers). The basemap layer only renders when a
-            # published basemap URL is available.
-            basemap_layer = (
-                f'<img src="{_esc(basemap_url)}" alt="" '
-                'style="position:absolute;top:0;left:0;width:100%;height:100%;'
-                'filter:sepia(.45) saturate(.7) contrast(.95)" />'
-            ) if basemap_url else ""
-            parts.append(
-                '<figure style="margin:1.5rem auto;padding:.85rem;'
-                'border:1px solid #C8BEA4;background:#ECE2CC;max-width:480px;text-align:center">'
-                f'<a href="{_esc(species_page)}" style="display:block;text-decoration:none;border:0;'
-                'position:relative;width:100%;padding-bottom:100%;overflow:hidden">'
-                f'{basemap_layer}'
-                f'<img src="{_esc(distribution_map_url)}" '
-                f'alt="{_esc(map_alt)}" '
-                'style="position:absolute;top:0;left:0;width:100%;height:100%;'
-                'filter:sepia(.45) saturate(.7) contrast(.95)" />'
-                '</a>'
-                '<figcaption style="margin-top:.55rem;'
-                'font-family:Georgia,serif;font-size:.72rem;color:#5C6A6E;'
-                'letter-spacing:.14em;text-transform:uppercase">'
-                f'{_esc(map_label)}'
-                '</figcaption>'
-                '</figure>'
-            )
-
-    # Link list — mirrors the front's plate-foot. eBird gets the
-    # ?siteLanguage param so it lands in the configured locale. Wikipedia
-    # is included when we have a URL; if it had to fall back to a non-
-    # target language, the label gets a "(en)" hint.
-    parts.append("<p><small>")
-    link_parts: list[str] = []
-    link_parts.append(
-        f'<a href="https://ebird.org/species/{code_e}?siteLanguage={catalog.language}">eBird</a>'
-    )
+    # Link list, mirroring the front's plate-foot: eBird, Wikipedia when
+    # we have one, Birds of the World, Macaulay Library.
+    link_parts = [f'<a href="{ebird_url}">eBird</a>']
     if wikipedia_url:
         wiki_label = "Wikipedia"
         if wikipedia_language and wikipedia_language != catalog.language:
             wiki_label = f"Wikipedia ({wikipedia_language})"
-        link_parts.append(
-            f'<a href="{_esc(wikipedia_url)}">{wiki_label}</a>'
-        )
+        link_parts.append(f'<a href="{_esc(wikipedia_url)}">{wiki_label}</a>')
     link_parts.append(
         f'<a href="https://birdsoftheworld.org/bow/species/{code_e}'
         '/cur/introduction">Birds of the World</a>'
     )
-    link_parts.append(
-        f'<a href="{_esc(ml_search_url)}">Macaulay Library</a>'
-    )
-    parts.append(" · ".join(link_parts))
-    parts.append("</small></p>")
+    link_parts.append(f'<a href="{_esc(ml_search_url)}">Macaulay Library</a>')
+    parts.append(f'<p><small>{" · ".join(link_parts)}</small></p>')
 
     return "\n".join(parts)
 
