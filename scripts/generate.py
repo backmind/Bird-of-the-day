@@ -297,17 +297,22 @@ def _build_site_entries(
 
 
 def _build_indexes(
-    history: dict, feed_link: str
+    history: dict, feed_link: str, ebird_locale: str
 ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     """Build cross-reference indexes for the name linker.
 
     Returns ``(code_to_localized, published_anchors, published_anchors_abs)``.
     ``published_anchors`` uses relative archive URLs; ``published_anchors_abs``
     prepends the ``feed_link`` base so RSS readers can resolve them.
+
+    ``ebird_locale`` must be the resolved locale for the run. This function
+    can be the first taxonomy load of a run, and ``get_full_taxonomy``
+    caches both in-process and on disk keyed by locale, so omitting it
+    would populate those caches with the default Spanish taxonomy.
     """
     # Ensure the taxonomy is loaded (may not be if we're rebuilding
     # without going through the full selection pipeline).
-    ebird_client.get_full_taxonomy(cache_dir=CACHE_DIR)
+    ebird_client.get_full_taxonomy(locale=ebird_locale, cache_dir=CACHE_DIR)
     code_to_localized = ebird_client.get_code_to_localized()
 
     published_anchors: dict[str, str] = {}
@@ -544,18 +549,32 @@ def main() -> None:
         # Maintenance first: heal past entries (missed enrichments,
         # failed GBIF lookups). Runs even when today is already
         # published, so a second cron tick repairs the morning's outage.
-        code_to_localized, published_anchors, published_anchors_abs = (
-            _build_indexes(history, feed_link)
-        )
-        session = image_fetcher.new_session(
-            accept_language=catalog.accept_language_header
-        )
-        actions = backfill.run_backfill(
-            history, config, catalog, str(CACHE_DIR),
-            english_name_index, code_to_localized,
-            limit=int(config.get("backfill_limit", 3)),
-            session=session,
-        )
+        # Guarded on its own: building the indexes may need to fetch the
+        # taxonomy, and an outage there must not turn an otherwise no-op
+        # run on an already-published day into a failure.
+        try:
+            code_to_localized, published_anchors, published_anchors_abs = (
+                _build_indexes(history, feed_link, ebird_locale)
+            )
+            session = image_fetcher.new_session(
+                accept_language=catalog.accept_language_header
+            )
+            actions = backfill.run_backfill(
+                history, config, catalog, str(CACHE_DIR),
+                english_name_index, code_to_localized,
+                limit=int(config.get("backfill_limit", 3)),
+                session=session,
+            )
+        except requests.RequestException:
+            logger.warning(
+                "maintenance skipped: taxonomy or network unavailable",
+                exc_info=True,
+            )
+            code_to_localized = {}
+            published_anchors = {}
+            published_anchors_abs = {}
+            actions = []
+
         healed = [a for a in actions if a.ok]
 
         # Idempotency: today's entry is already published. Republish only
@@ -649,7 +668,7 @@ def main() -> None:
 
         # 4. Rebuild cross-reference indexes so anchors include today.
         code_to_localized, published_anchors, published_anchors_abs = (
-            _build_indexes(history, feed_link)
+            _build_indexes(history, feed_link, ebird_locale)
         )
 
         # 5. Full-rebuild the RSS feed.
