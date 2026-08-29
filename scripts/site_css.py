@@ -999,4 +999,33 @@ footer.site a { color: var(--ink-soft); }
 }
 .page-nav a:hover { border-bottom-color: var(--accent); }
 .page-nav .page-nav-up { color: var(--ink-soft); }
+
+/* ─── month index ──────────────────────────────────────────────────
+   The archive front is a directory: one line per month, forever.        */
+.month-index { max-width: var(--max); margin: 3rem auto 1rem; padding: 0 1.25rem; }
+.month-index h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
+.month-year {
+  font-size: 0.9rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.14em;
+  margin: 1.75rem 0 0.5rem;
+}
+.month-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0 1.5rem;
+}
+.month-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px dotted var(--rule);
+}
+.month-list a { color: var(--ink); text-decoration: none; }
+.month-list a:hover { color: var(--accent); }
+.month-list .count { color: var(--ink-faint); }
 """.strip()
