@@ -45,9 +45,9 @@ def test_effective_window_never_goes_negative():
 
 def test_rarity_bias_is_softened():
     # 1/sqrt en vez de 1/n: cien ejemplares pesan un décimo, no un céntimo.
-    assert _rarity_score(100) == 0.1
-    assert _rarity_score(1) == 1.0
-    assert _rarity_score(0) == 1.0
+    assert _rarity_score(100, 0.5) == 0.1
+    assert _rarity_score(1, 0.5) == 1.0
+    assert _rarity_score(0, 0.5) == 1.0
 
 
 def test_weighted_pick_is_deterministic():
@@ -55,8 +55,8 @@ def test_weighted_pick_is_deterministic():
         {"speciesCode": "a", "total_count": 1},
         {"speciesCode": "b", "total_count": 1},
     ]
-    first = _weighted_pick(candidates, "2026-04-13", "pool")
-    second = _weighted_pick(candidates, "2026-04-13", "pool")
+    first = _weighted_pick(candidates, "2026-04-13", 0.5, "pool")
+    second = _weighted_pick(candidates, "2026-04-13", 0.5, "pool")
     assert first["speciesCode"] == second["speciesCode"]
 
 
@@ -83,7 +83,7 @@ def test_select_from_observations_never_empties_for_any_supply():
         observations = [_obs(c) for c in codes]
         recency = list(reversed(codes))  # covers every candidate
         result = _select_from_observations(
-            observations, recency, supply * 100, "2026-04-13", "madrid"
+            observations, recency, supply * 100, "2026-04-13", 0.5, "madrid"
         )
         assert result is not None
         assert result["speciesCode"] in set(codes)
@@ -103,7 +103,7 @@ def test_select_from_observations_returns_none_when_exclude_empties_the_survivor
     recency = list(reversed(codes))
     exclude = frozenset(codes[:-1])  # only the last species is left
     result = _select_from_observations(
-        observations, recency, 800, "2026-04-13", "madrid", exclude=exclude
+        observations, recency, 800, "2026-04-13", 0.5, "madrid", exclude=exclude
     )
     assert result is None
 
@@ -123,10 +123,10 @@ def test_supply_is_measured_before_exclude_not_after():
     notes_bare: list[str] = []
     notes_excluded: list[str] = []
     _select_from_observations(
-        observations, recency, 800, "2026-04-13", "madrid", notes=notes_bare
+        observations, recency, 800, "2026-04-13", 0.5, "madrid", notes=notes_bare
     )
     _select_from_observations(
-        observations, recency, 800, "2026-04-13", "madrid",
+        observations, recency, 800, "2026-04-13", 0.5, "madrid",
         exclude=frozenset(codes[:5]), notes=notes_excluded,
     )
     clamp_bare = next(n for n in notes_bare if "clamped" in n)
@@ -142,7 +142,7 @@ def test_observations_window_two_leaves_only_a_and_d_eligible():
     dates = [f"2026-04-{day:02d}" for day in range(1, 15)]
     results = {
         _select_from_observations(
-            observations, ["c", "b", "a"], 2, date, "madrid"
+            observations, ["c", "b", "a"], 2, date, 0.5, "madrid"
         )["speciesCode"]
         for date in dates
     }
@@ -154,7 +154,7 @@ def test_observations_window_three_forces_d_with_no_draw():
     # Ventana 3 sobre oferta 4: effective = min(3, int(4 * 0.75) = 3) = 3,
     # bloquea c, b y a; solo queda d, sin necesidad de sorteo.
     result = _select_from_observations(
-        observations, ["c", "b", "a"], 3, "2026-04-13", "madrid"
+        observations, ["c", "b", "a"], 3, "2026-04-13", 0.5, "madrid"
     )
     assert result["speciesCode"] == "d"
 
@@ -163,7 +163,7 @@ def test_observations_note_the_republication_instead_of_giving_up():
     observations = [_obs("a"), _obs("b"), _obs("c"), _obs("d")]
     notes = []
     result = _select_from_observations(
-        observations, ["d", "c", "b", "a"], 99, "2026-04-13", "madrid",
+        observations, ["d", "c", "b", "a"], 99, "2026-04-13", 0.5, "madrid",
         notes=notes,
     )
     # Never a rescue: the pick still comes from this pool's own species.
@@ -182,7 +182,7 @@ def test_observations_no_clamp_note_on_an_empty_history():
     """
     notes = []
     _select_from_observations(
-        [_obs("a"), _obs("b")], [], 99, "2026-04-13", "madrid", notes=notes
+        [_obs("a"), _obs("b")], [], 99, "2026-04-13", 0.5, "madrid", notes=notes
     )
     assert not any("clamp" in note for note in notes)
 
@@ -191,7 +191,7 @@ def test_observations_note_the_clamp_when_it_genuinely_bites():
     """The clamp note fires once there is more history than it can hold."""
     notes = []
     _select_from_observations(
-        [_obs("a"), _obs("b")], ["a", "b"], 99, "2026-04-13", "madrid",
+        [_obs("a"), _obs("b")], ["a", "b"], 99, "2026-04-13", 0.5, "madrid",
         notes=notes,
     )
     assert any("clamp" in note for note in notes)
@@ -200,7 +200,7 @@ def test_observations_note_the_clamp_when_it_genuinely_bites():
 def test_exclude_wins_over_everything():
     observations = [_obs("a"), _obs("b")]
     result = _select_from_observations(
-        observations, [], 0, "2026-04-13", "madrid", exclude=frozenset({"a"})
+        observations, [], 0, "2026-04-13", 0.5, "madrid", exclude=frozenset({"a"})
     )
     assert result["speciesCode"] == "b"
 
@@ -219,7 +219,7 @@ def test_recycling_is_not_a_carousel():
     for day in range(1, 21):
         date_str = f"2026-05-{day:02d}"
         result = _select_from_observations(
-            observations, recency, 99, date_str, "madrid"
+            observations, recency, 99, date_str, 0.5, "madrid"
         )
         code = result["speciesCode"]
         published.append(code)

@@ -141,6 +141,7 @@ _ENV_OVERRIDES: dict[str, tuple[str, Callable[[str], object]]] = {
     "BOTD_DESCRIPTION_POLICY": ("description_policy", str),
     "BOTD_MAX_SKIP_RETRIES": ("max_skip_retries", int),
     "BOTD_DEDUP_WINDOW": ("dedup_window", int),
+    "BOTD_RARITY_BIAS": ("rarity_bias", float),
     "BOTD_MAX_FEED_ENTRIES": ("max_feed_entries", int),
     "BOTD_BACK_DAYS": ("back_days", int),
     "BOTD_BACKFILL_LIMIT": ("backfill_limit", int),

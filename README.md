@@ -201,6 +201,7 @@ Every behavior knob lives here. Annotated example:
     {"id": "global", "weight": 0.15, "type": "global_taxonomy"}
   ],
   "dedup_window": 50,
+  "rarity_bias": 0.5,
   "max_feed_entries": 30,
   "feed_rebuild_all": false,
   "back_days": 14,
@@ -373,6 +374,7 @@ and overrides it if set:
 | `BOTD_DESCRIPTION_POLICY` | `description_policy` | `strict`, `foreign_fallback`, `skip` |
 | `BOTD_MAX_SKIP_RETRIES` | `max_skip_retries` | `50` |
 | `BOTD_DEDUP_WINDOW` | `dedup_window` | `50` |
+| `BOTD_RARITY_BIAS` | `rarity_bias` | `0` |
 | `BOTD_MAX_FEED_ENTRIES` | `max_feed_entries` | `60` |
 | `BOTD_FEED_REBUILD_ALL` | `feed_rebuild_all` | `1` |
 | `BOTD_BACK_DAYS` | `back_days` | `14` |

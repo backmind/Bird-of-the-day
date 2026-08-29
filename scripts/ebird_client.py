@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import math
 import os
 import random
 import sys
@@ -328,19 +327,66 @@ def _effective_window(window: int, supply: int) -> int:
     return max(min(window, int(supply * WINDOW_SUPPLY_FRACTION)), 0)
 
 
-def _rarity_score(total_count: int) -> float:
-    """Selection weight: rarer species score higher, but not wildly.
+DEFAULT_RARITY_BIAS = 0.5
+"""Default strength of the rarity bias applied by :func:`_rarity_score`.
 
-    Inverse square root rather than plain inverse. The candidate list runs
-    to a thousand species, most of them reported once, and a linear
-    inverse would let those single sightings swallow the draw.
+The value is the exponent in ``1 / count ** bias``, and it is a scale
+rather than a fixed rule: 0 turns the draw uniform, with no rarity bias
+at all, so every eligible species is equally likely. 0.5 is this
+project's default: a soft bias that nudges the draw towards rarer
+species without letting a single sighting dominate it. 1 is the strong
+inverse-count bias the project used before 2026-08. A negative value
+inverts the bias, favouring the most abundant species instead of the
+rarest. How strong a bias reads as "right" is a matter of taste per
+instance, hence the knob.
+"""
+
+
+def rarity_bias(config: dict) -> float:
+    """Read the configured rarity bias, falling back to the default.
+
+    ``config.json`` can hold a real JSON number, but a hand-edited file
+    can hold anything: a string, ``null``, a typo. Anything that cannot
+    be read as a float falls back to :data:`DEFAULT_RARITY_BIAS` with a
+    warning rather than raising. The key's absence is handled
+    separately from a present-but-invalid value: ``0`` is a legitimate,
+    deliberate setting (a uniform draw), so this cannot use
+    ``config.get("rarity_bias") or DEFAULT_RARITY_BIAS``, which would
+    silently replace a configured ``0`` with the default.
     """
-    return 1.0 / math.sqrt(max(total_count, 1))
+    if "rarity_bias" not in config:
+        return DEFAULT_RARITY_BIAS
+    value = config["rarity_bias"]
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        logger.warning(
+            "invalid rarity_bias=%r in config, using default %s",
+            value, DEFAULT_RARITY_BIAS,
+        )
+        return DEFAULT_RARITY_BIAS
 
 
-def _weighted_pick(candidates: list[dict], date_str: str, salt: str) -> dict:
+def _rarity_score(total_count: int, bias: float) -> float:
+    """Selection weight for one candidate: ``1 / count ** bias``.
+
+    ``bias`` is the knob documented at :data:`DEFAULT_RARITY_BIAS`: 0
+    makes every candidate score 1.0 (a uniform draw), 1 is a plain
+    inverse count, and the project's default of 0.5 is an inverse
+    square root. The default is soft rather than a plain inverse
+    because the candidate list runs to a thousand species, most of
+    them reported once, and a linear inverse would let those single
+    sightings swallow the draw against species with a hundred or more
+    records.
+    """
+    return 1.0 / (max(total_count, 1) ** bias)
+
+
+def _weighted_pick(
+    candidates: list[dict], date_str: str, bias: float, salt: str
+) -> dict:
     """The rarity-weighted, date-seeded draw shared by every path."""
-    scores = [_rarity_score(c.get("total_count", 1)) for c in candidates]
+    scores = [_rarity_score(c.get("total_count", 1), bias) for c in candidates]
     rng = random.Random(_date_seed(date_str, salt=salt))
     return rng.choices(candidates, weights=scores, k=1)[0]
 
@@ -350,6 +396,7 @@ def _clamp_and_pick(
     recency: list[str],
     window: int,
     date_str: str,
+    bias: float,
     salt: str,
     label: str,
     exclude: frozenset[str] = frozenset(),
@@ -422,7 +469,7 @@ def _clamp_and_pick(
 
     if not eligible:
         return None
-    return _weighted_pick(eligible, date_str, salt)
+    return _weighted_pick(eligible, date_str, bias, salt)
 
 
 def _pick_pool(pools: list[dict], date_str: str) -> dict:
@@ -448,6 +495,7 @@ def _select_from_observations(
     recency: list[str],
     window: int,
     date_str: str,
+    bias: float,
     pool_id: str,
     exclude: frozenset[str] = frozenset(),
     notes: list[str] | None = None,
@@ -482,7 +530,7 @@ def _select_from_observations(
         return None
 
     selected = _clamp_and_pick(
-        list(species_map.values()), recency, window, date_str,
+        list(species_map.values()), recency, window, date_str, bias,
         salt=pool_id, label=f"pool {pool_id}", exclude=exclude, notes=notes,
     )
     if selected is None:
@@ -499,6 +547,7 @@ def _select_from_taxonomy(
     recency: list[str],
     window: int,
     date_str: str,
+    bias: float,
     exclude: frozenset[str] = frozenset(),
     notes: list[str] | None = None,
 ) -> dict | None:
@@ -526,7 +575,7 @@ def _select_from_taxonomy(
     # the same reason it does on the observations path: it must not change
     # the measured supply, and therefore must not move the clamp.
     selected = _clamp_and_pick(
-        candidates, recency, window, date_str,
+        candidates, recency, window, date_str, bias,
         salt="global", label="the world list", exclude=exclude, notes=notes,
     )
     if selected is None:
@@ -563,6 +612,7 @@ def _select_from_pool(
     recency: list[str],
     window: int,
     date_str: str,
+    bias: float,
     back: int,
     locale: str,
     cache_dir: Path | None,
@@ -578,7 +628,7 @@ def _select_from_pool(
             logger.warning("No observations returned for region %s", region)
             return None
         return _select_from_observations(
-            observations, recency, window, date_str, pool["id"],
+            observations, recency, window, date_str, bias, pool["id"],
             exclude=exclude, notes=notes,
         )
 
@@ -590,7 +640,8 @@ def _select_from_pool(
             logger.exception("Failed to fetch global taxonomy")
             return None
         return _select_from_taxonomy(
-            taxonomy, recency, window, date_str, exclude=exclude, notes=notes,
+            taxonomy, recency, window, date_str, bias,
+            exclude=exclude, notes=notes,
         )
 
     logger.warning("Unknown pool type: %s", pool_type)
@@ -624,6 +675,7 @@ def select_species(
     pools = config["pools"]
     back = config.get("back_days", 14)
     locale = config.get("ebird_locale", "es")
+    bias = rarity_bias(config)
     recency = _recency_order(published_codes)
     window = scaled_window(config, len(published_codes))
 
@@ -637,7 +689,7 @@ def select_species(
     logger.info("Selected pool: %s (weight=%s)", chosen_pool["id"], chosen_pool["weight"])
 
     result = _select_from_pool(
-        chosen_pool, recency, window, date_str, back, locale, cache_dir,
+        chosen_pool, recency, window, date_str, bias, back, locale, cache_dir,
         exclude=exclude, notes=notes,
     )
     if result:
@@ -655,7 +707,7 @@ def select_species(
         rescue_pool = {"id": "rescue", "type": "global_taxonomy"}
 
     result = _select_from_pool(
-        rescue_pool, recency, window, date_str, back, locale, cache_dir,
+        rescue_pool, recency, window, date_str, bias, back, locale, cache_dir,
         exclude=exclude, notes=notes,
     )
     if result:
