@@ -609,6 +609,7 @@ def main() -> None:
                 enriched = llm_enricher.enrich_species(
                     species_code, common_name, scientific_name,
                     content, config, catalog,
+                    english_name_index, code_to_localized,
                 )
                 if enriched:
                     llm_enricher.save_cached_enrichment(
