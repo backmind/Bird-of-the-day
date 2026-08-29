@@ -56,7 +56,7 @@ GOLDEN = (
 )
 
 
-def _render() -> str:
+def _render(*, previous_date: str = "") -> str:
     return build_entry_html(
         species_code="eurbla",
         common_name="Mirlo común",
@@ -80,11 +80,26 @@ def _render() -> str:
         number=141,
         date="2026-08-27",
         species_page_url="https://birds.example.org/birds/eurbla.html",
+        previous_date=previous_date,
     )
+
+
+# Same fixture as GOLDEN, republished: only the head line changes, gaining
+# the chip. This is the shape Task 5 added and the one the plain debut
+# golden above cannot exercise, since it never passes ``previous_date``.
+GOLDEN_REPUBLISHED = (
+    '<p><small>№ 141 · 2026 · 08 · 27 · '
+    '<a href="https://birds.example.org/birds/eurbla.html">'
+    'Ya publicada: 2026 · 07 · 15</a></small></p>\n'
+) + "\n".join(GOLDEN.split("\n")[1:])
 
 
 def test_the_item_body_is_byte_for_byte_what_it_was():
     assert _render() == GOLDEN
+
+
+def test_the_republished_item_body_is_byte_for_byte_what_it_was():
+    assert _render(previous_date="2026-07-15") == GOLDEN_REPUBLISHED
 
 
 def test_the_body_is_stable_across_calls():

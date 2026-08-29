@@ -35,7 +35,7 @@ ET.register_namespace("media", MEDIA_NS)
 # back when deciding whether a stored feed's item bodies can be reused
 # as-is; bump it whenever build_entry_html changes shape, so the next
 # run re-renders the history instead of mixing two formats forever.
-FEED_FORMAT = 2
+FEED_FORMAT = 3
 GENERATOR = f"Bird of the Day (feed format {FEED_FORMAT})"
 _GENERATOR_RE = re.compile(r"feed format (\d+)")
 
