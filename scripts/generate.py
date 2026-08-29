@@ -579,6 +579,7 @@ def main() -> None:
         # Guarded on its own: building the indexes may need to fetch the
         # taxonomy, and an outage there must not turn an otherwise no-op
         # run on an already-published day into a failure.
+        maintenance_ok = True
         try:
             code_to_localized, published_anchors, published_anchors_abs = (
                 _build_indexes(history, feed_link, ebird_locale)
@@ -598,6 +599,7 @@ def main() -> None:
                 exc_info=True,
             )
             report.warn("maintenance skipped: taxonomy or network unavailable")
+            maintenance_ok = False
             code_to_localized = {}
             published_anchors = {}
             published_anchors_abs = {}
@@ -632,23 +634,34 @@ def main() -> None:
             # content-addressed, so this runs on every tick regardless of
             # whether backfill healed anything: a run that died part way
             # through the page set on a previous tick must not leave a
-            # mixed set on disk until the next new-day publish.
-            site_entries = _build_site_entries(
-                history, description_policy=description_policy
-            )
-            site_result = archive_builder.write_site(
-                site_entries,
-                STATE_DIR,
-                catalog=catalog,
-                feed_link=feed_link,
-                english_name_index=english_name_index,
-                code_to_localized=code_to_localized,
-                published_anchors=published_anchors,
-            )
-            report.info(
-                f"site: {site_result['written']} of {site_result['pages']} pages "
-                f"written, {site_result['unchanged']} unchanged"
-            )
+            # mixed set on disk until the next new-day publish. But only
+            # when maintenance actually succeeded: on a failed taxonomy
+            # fetch the cross-link indexes above are empty dicts, and
+            # writing with those would rewrite every page with the name
+            # linker disabled, content-addressed straight over the good
+            # version already on disk.
+            if maintenance_ok:
+                site_entries = _build_site_entries(
+                    history, description_policy=description_policy
+                )
+                site_result = archive_builder.write_site(
+                    site_entries,
+                    STATE_DIR,
+                    catalog=catalog,
+                    feed_link=feed_link,
+                    english_name_index=english_name_index,
+                    code_to_localized=code_to_localized,
+                    published_anchors=published_anchors,
+                )
+                report.info(
+                    f"site: {site_result['written']} of {site_result['pages']} pages "
+                    f"written, {site_result['unchanged']} unchanged"
+                )
+            else:
+                report.warn(
+                    "site rebuild skipped: maintenance failed, "
+                    "not republishing with an empty cross-link catalog"
+                )
             report.info(
                 f"already published for {date_str}"
                 + (", outputs rebuilt after healing" if healed else "")
