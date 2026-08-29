@@ -171,10 +171,28 @@ def test_observations_note_the_republication_instead_of_giving_up():
     assert any("offers no species outside the dedup window" in note for note in notes)
 
 
-def test_observations_note_the_clamp():
+def test_observations_no_clamp_note_on_an_empty_history():
+    """A brand new instance must not print a misleading clamp note.
+
+    Supply 2 against window 99 clamps effective to 1 whether or not
+    anything has ever been published, but with an empty history nothing
+    is actually blocked either way: recency[:1] and recency[:99] are
+    both empty. The note is an early warning that the archive is
+    catching up with the pool, and on day one it has not.
+    """
     notes = []
     _select_from_observations(
         [_obs("a"), _obs("b")], [], 99, "2026-04-13", "madrid", notes=notes
+    )
+    assert not any("clamp" in note for note in notes)
+
+
+def test_observations_note_the_clamp_when_it_genuinely_bites():
+    """The clamp note fires once there is more history than it can hold."""
+    notes = []
+    _select_from_observations(
+        [_obs("a"), _obs("b")], ["a", "b"], 99, "2026-04-13", "madrid",
+        notes=notes,
     )
     assert any("clamp" in note for note in notes)
 

@@ -379,7 +379,16 @@ def _clamp_and_pick(
     """
     supply = len(candidates)
     effective = _effective_window(window, supply)
-    if effective < window:
+    # The clamp is only worth reporting when it actually blocked fewer
+    # species than the raw window would have: when there are more
+    # previously published species than the clamped window can hold. A
+    # brand new instance with an empty history has nothing in `recency`
+    # at all, so `effective < window` is true on its very first run while
+    # the clamp costs nothing -- recency[:effective] and recency[:window]
+    # are both empty either way. The note is meant to be the early
+    # warning that the archive is catching up with the pool, not noise on
+    # day one.
+    if effective < window and len(recency) > effective:
         _note(
             notes,
             f"dedup window clamped from {window} to {effective}: "
