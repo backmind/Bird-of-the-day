@@ -100,3 +100,41 @@ def test_extract_name_pairs():
 def test_extract_name_pairs_empty():
     pairs = extract_name_pairs("No birds here.", {}, {})
     assert pairs == {}
+
+
+def test_shortform_links_head_word_verbatim():
+    """The head word of a confirmed species links verbatim when repeated."""
+    eni = {"Atlantic Puffin": "atlpuf"}
+    c2l = {"atlpuf": "Frailecillo Atlantico"}
+    result = process_description(
+        "El Atlantic Puffin anida aqui. Frailecillo vuela lejos.",
+        eni, c2l, {}
+    )
+    assert result.count("ebird.org/species/atlpuf") == 2
+    assert ">Frailecillo</a>" in result
+    assert "Frailecillo Atlantico</a>" not in result.split(">Frailecillo</a>")[1]
+
+
+def test_shortform_ignores_non_head_words():
+    """A non-head word of the confirmed name is not linked elsewhere."""
+    eni = {"Salomon Pigeon": "salpig"}
+    c2l = {"salpig": "Paloma Perdiz de las Salomon"}
+    result = process_description(
+        "The Salomon Pigeon lives there. "
+        "En el archipielago de las Salomon hay muchas aves.",
+        eni, c2l, {}
+    )
+    assert "archipielago de las Salomon hay" in result
+    assert result.count("Paloma Perdiz de las Salomon") == 1
+
+
+def test_shortform_is_case_sensitive():
+    """A lowercase occurrence of the head word is not linked."""
+    eni = {"Atlantic Puffin": "atlpuf"}
+    c2l = {"atlpuf": "Frailecillo Atlantico"}
+    result = process_description(
+        "El Atlantic Puffin anida aqui. Un frailecillo de juguete cayo.",
+        eni, c2l, {}
+    )
+    assert result.count("ebird.org/species/atlpuf") == 1
+    assert "frailecillo de juguete" in result

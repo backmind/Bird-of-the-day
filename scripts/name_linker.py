@@ -9,8 +9,12 @@ Pipeline over raw description text:
      Wraps in a link without substitution (the name is already in the
      target language). This pass always runs, catching names written
      in the locale by the LLM or by locale-aware scraping.
-  3. **Short-form pass** — individual words (≥ 4 chars) from species
-     confirmed in passes 1-2, case-sensitive, word-boundary.
+  3. **Short-form pass** — the first (head) word of the localized name
+     of species confirmed in passes 1-2, when it is ≥ 4 chars,
+     case-sensitive, word-boundary. Spanish species names are
+     head-first, so only that first word can stand alone as a
+     reference to the species; the matched text is kept verbatim
+     (never replaced by the full name).
   4. **Dirty-substring pass** — full confirmed names as substrings
      (no word boundaries). Catches formatting artifacts.
   5. **Scientific-name pass** — binomial names from the eBird taxonomy,
@@ -166,17 +170,24 @@ def process_description(
             if _try_add(m.start(), m.end(), repl):
                 confirmed_species[code] = name
 
-    # ── Pass 3: short-form abbreviations from confirmed species ─
-
+    # ── Pass 3: head-word references from confirmed species ─────
+    # Spanish species names are head-first ("Frailecillo Atlantico"),
+    # so only the FIRST word of the localized name can stand alone as
+    # a reference to the species. Matching later words produced false
+    # positives in production ("archipielago de las Salomon" linked
+    # "Salomon" to Paloma Perdiz de las Salomon). The link keeps the
+    # matched text verbatim: substituting the full name mutated
+    # sentences ("del Atlantico Norte" -> "del Frailecillo Atlantico
+    # Norte").
     for code, full_name in confirmed_species.items():
-        for word in full_name.split():
-            if len(word) < _MIN_SHORTFORM_LEN:
-                continue
-            pattern = re.compile(r"\b" + re.escape(word) + r"\b")
-            for m in pattern.finditer(raw_text):
-                localized = code_to_localized.get(code, m.group())
-                repl = _make_link(code, localized, published_anchors, ebird_locale)
-                _try_add(m.start(), m.end(), repl)
+        localized = code_to_localized.get(code, full_name)
+        head = localized.split()[0] if localized else ""
+        if len(head) < _MIN_SHORTFORM_LEN:
+            continue
+        pattern = re.compile(r"\b" + re.escape(head) + r"\b")
+        for m in pattern.finditer(raw_text):
+            repl = _make_link(code, m.group(), published_anchors, ebird_locale)
+            _try_add(m.start(), m.end(), repl)
 
     # ── Pass 4: dirty-substring cleanup for confirmed species ───
 
