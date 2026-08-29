@@ -199,7 +199,7 @@ def _parse_retry_after(value: str | None) -> int:
         return 0
     try:
         return max(0, int(value))
-    except ValueError:
+    except (ValueError, TypeError):
         return 0
 
 
@@ -273,7 +273,13 @@ def _call_llm(messages: list[dict], config: dict) -> dict | None:
                 if parsed is None:
                     raise ValueError("unparseable JSON in completion")
                 return parsed
-            except (requests.RequestException, KeyError, ValueError) as exc:
+            except (
+                requests.RequestException,
+                KeyError,
+                IndexError,
+                TypeError,
+                ValueError,
+            ) as exc:
                 if attempt < max_retries:
                     sleep_for = wait + random.uniform(0, 1)
                     logger.warning(

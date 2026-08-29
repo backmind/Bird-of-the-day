@@ -8,13 +8,29 @@ from scripts.llm_enricher import _call_llm
 GOOD_BODY = {"prose": "Texto.", "identification": ["a", "b", "c"]}
 
 
-def _ok_response(body=GOOD_BODY) -> MagicMock:
+def _ok_response(body=GOOD_BODY, content=None) -> MagicMock:
+    """A 200 response. Pass *content* to control the raw completion text
+    directly (e.g. malformed JSON or a markdown-fenced body), overriding
+    the default of ``json.dumps(body)``.
+    """
     resp = MagicMock()
     resp.status_code = 200
     resp.raise_for_status = MagicMock()
     resp.json.return_value = {
-        "choices": [{"message": {"content": json.dumps(body)}}]
+        "choices": [
+            {"message": {"content": content if content is not None else json.dumps(body)}}
+        ]
     }
+    return resp
+
+
+def _empty_choices_response() -> MagicMock:
+    """A 200 response with no choices, as some OpenAI-compat shims return
+    for a safety-blocked or filtered completion."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"choices": []}
     return resp
 
 
@@ -86,3 +102,43 @@ class TestCallLlm:
             with patch("scripts.llm_enricher.time.sleep"):
                 with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
                     assert _call_llm([], cfg) is None
+
+    def test_empty_choices_retries_instead_of_crashing(self):
+        # A 200 with no choices (safety-blocked/filtered completion) must
+        # feed the retry loop, not escape as an uncaught IndexError.
+        with patch("scripts.llm_enricher.requests.post",
+                   side_effect=[_empty_choices_response(), _ok_response()]):
+            with patch("scripts.llm_enricher.time.sleep") as sleep:
+                with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                    result = _call_llm([], CFG)
+        assert result == GOOD_BODY
+        assert sleep.call_count == 1
+
+    def test_retry_after_capped_at_120(self):
+        with patch("scripts.llm_enricher.requests.post",
+                   side_effect=[_busy_response(retry_after=3600), _ok_response()]):
+            with patch("scripts.llm_enricher.time.sleep") as sleep:
+                with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                    result = _call_llm([], CFG)
+        assert result == GOOD_BODY
+        assert 120 <= sleep.call_args_list[0].args[0] <= 121
+
+    def test_unparseable_completion_retries(self):
+        with patch("scripts.llm_enricher.requests.post",
+                   side_effect=[_ok_response(content="this is not json"),
+                                _ok_response()]):
+            with patch("scripts.llm_enricher.time.sleep") as sleep:
+                with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                    result = _call_llm([], CFG)
+        assert result == GOOD_BODY
+        assert sleep.call_count == 1
+
+    def test_fenced_json_parsed(self):
+        fenced = "```json\n" + json.dumps(GOOD_BODY) + "\n```"
+        with patch("scripts.llm_enricher.requests.post",
+                   return_value=_ok_response(content=fenced)):
+            with patch("scripts.llm_enricher.time.sleep") as sleep:
+                with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                    result = _call_llm([], CFG)
+        assert result == GOOD_BODY
+        assert sleep.call_count == 0
