@@ -16,8 +16,9 @@
 #       --restart unless-stopped \
 #       bird-of-the-day
 #
-# The container serves /, /archive.html and /feed.xml on port 8080. A
-# built-in cron daemon (supercronic) regenerates the site daily at 07:00 UTC.
+# The container serves the generated site (/, /archive.html, its month and
+# species pages, /feed.xml) on port 8080. A built-in cron daemon (supercronic)
+# regenerates the site daily at 07:00 UTC.
 
 # ============================================================================
 # Stage 1 — builder

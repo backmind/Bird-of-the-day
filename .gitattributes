@@ -1,0 +1,8 @@
+# Generated site output is written with LF on every platform. Without
+# this, a Windows checkout reintroduces CRLF and the next run rewrites
+# every page.
+*.html text eol=lf
+*.xml  text eol=lf
+*.css  text eol=lf
+*.json text eol=lf
+*.py   text eol=lf

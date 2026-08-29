@@ -25,17 +25,50 @@ directly. No tracking, no cookies.
 
 ## Endpoints
 
-GitHub Pages serves three static routes from the repository root:
+GitHub Pages serves the generated site as static routes from the
+repository root:
 
 | Route | What it is |
 |---|---|
 | `/` (`index.html`) | Hero of the day's bird + a grid of the most recent twelve |
-| `/archive.html` | Every published bird in reverse chronological order, with permanent anchors (`#bird-{code}-{date}`) |
+| `/archive.html` | Archive front: the current month as cards, plus a directory of every month |
+| `/archive-YYYY-MM.html` | Every plate published that month, with permanent anchors (`#bird-{code}-{date}`) |
+| `/birds/{code}.html` | Canonical page for a species, with its publication history |
 | `/feed.xml` | RSS 2.0 feed with rich `content:encoded` HTML |
 
 Everything is server-rendered HTML — no JavaScript framework, no build
-step. The single small piece of vanilla JS is an inline theme switcher
-that persists light/dark preference in `localStorage`.
+step. Two small pieces of vanilla JS are inlined: a theme switcher that
+persists light/dark preference in `localStorage`, and, on `archive.html`
+only, a redirect for legacy anchors (see [Archive and
+permalinks](#archive-and-permalinks) below).
+
+### Archive and permalinks
+
+The archive is paginated by calendar month instead of one growing page.
+`archive.html` is the archive front: the current month rendered as
+cards, plus a directory of every month grouped by year.
+`archive-YYYY-MM.html` is a month bucket: every plate published in that
+month, in full, oldest and newest linked to their neighboring buckets.
+
+Three kinds of link make up the permalink contract:
+
+- **Species page** (`/birds/{code}.html`) is the canonical URL for a
+  bird. It never changes, always shows the most recent publication as
+  the plate, and lists every date the species has been published.
+- **Bucket anchor** (`archive-YYYY-MM.html#bird-{code}-{date}`) is the
+  permalink for one publication: the month page it lives on, plus its
+  anchor.
+- **Legacy anchor**: before the archive was split into months, every
+  publication's permalink was `archive.html#bird-{code}-{date}`, and
+  that format was already delivered to RSS subscribers. A small inline
+  script on `archive.html` reads the fragment, derives the month from
+  the date it encodes, and redirects to the matching bucket page and
+  anchor, so old links keep working.
+
+The species-name cross-linker (`name_linker.py`) points at species
+pages, never at a bucket anchor, so a link inserted in today's
+description keeps resolving after the entry it points to moves into an
+older month bucket.
 
 ## How it works
 
@@ -57,7 +90,9 @@ GitHub Actions (cron daily 07:00 UTC)
   │     so the footer link is always present
   ├─ 6. GBIF distribution map composed (committed basemap +
   │     density overlay)
-  ├─ 7. feed.xml + index.html + archive.html written
+  ├─ 7. feed.xml + index.html + archive.html + one page per month +
+  │     one page per species + assets/site.css written; only the
+  │     ones whose content changed are rewritten
   └─ 8. git commit + git push → GitHub Pages republishes
 ```
 
@@ -219,7 +254,9 @@ This:
 2. Loads the i18n catalog for the configured language.
 3. Bails early if today's entry is already in `history.json`.
 4. Selects the species, fetches image and content (writing to `cache/`).
-5. Writes `feed.xml`, `index.html`, `archive.html`.
+5. Writes `feed.xml`, `index.html`, `archive.html`, one page per month
+   bucket, one page per species and `assets/site.css` — only the files
+   whose content changed are rewritten.
 6. Updates `history.json`.
 
 To force a regeneration of today's entry, empty the history:
@@ -238,9 +275,9 @@ Copy `.github/bird-of-the-day.yml.example` to
 - Manually from the **Actions → Bird of the Day → Run workflow** tab.
 
 The workflow `git add`s `feed.xml`, `history.json`, `index.html`,
-`archive.html`, `cache/`, `maps/` and `assets/`, then commits with a
-message of the form `🐦 Bird of the day: 2026-04-11` and pushes to the
-default branch.
+`archive.html`, `archive-*.html`, `birds/`, `cache/`, `maps/` and
+`assets/`, then commits with a message of the form `🐦 Bird of the day:
+2026-04-11` and pushes to the default branch.
 
 Every run writes a summary to the job log, whether or not anything is
 degraded. In GitHub Actions specifically, each degraded step (a failed
@@ -360,13 +397,15 @@ The single volume at `/var/lib/botd` holds all mutable state:
 
 ```
 /var/lib/botd/
-├── cache/         # per-species + taxonomy caches
-├── maps/          # composed distribution maps embedded in the RSS feed
-├── assets/        # basemap.png, copied from the image at build time
-├── feed.xml       # the RSS feed
-├── index.html     # the front page
-├── archive.html   # the chronological archive
-└── history.json   # the full publication history
+├── cache/               # per-species + taxonomy caches
+├── maps/                # composed distribution maps embedded in the RSS feed
+├── assets/              # site.css + basemap.png, written/copied at build time
+├── birds/               # one canonical page per species ever published
+├── feed.xml             # the RSS feed
+├── index.html           # the front page
+├── archive.html         # the archive front (current month + month directory)
+├── archive-YYYY-MM.html # one page per calendar month, every plate published in it
+└── history.json         # the full publication history
 ```
 
 Back this up and you can rebuild the running container without losing a
@@ -540,7 +579,11 @@ Bird-of-the-day/
 │   ├── map_composer.py    # server-side map composition for RSS
 │   ├── name_linker.py     # species name cross-linking
 │   ├── feed_builder.py    # RSS 2.0 generation
-│   ├── site_builder.py    # index.html + archive.html generation
+│   ├── site_builder.py    # index page, plus the chrome/plate/card renderers shared by every page
+│   ├── archive_builder.py # archive front, month buckets, species pages; owns write_site()
+│   ├── site_css.py        # the stylesheet, as a Python string, written to assets/site.css
+│   ├── urls.py            # canonical URL/anchor scheme shared by every page and the feed
+│   ├── atomic_io.py       # content-addressed atomic writes (skip pages whose bytes didn't change)
 │   ├── backfill.py        # self-healing retry of past degraded entries
 │   ├── run_report.py      # run summary + GitHub Actions annotations
 │   ├── i18n.py            # Catalog loader + langid wrapper
@@ -551,7 +594,8 @@ Bird-of-the-day/
 │   └── i18n/{es,en,fr,pt}.json # translation catalogs
 ├── cache/                 # taxonomy + per-species caches (generated)
 ├── maps/                  # composed distribution maps for RSS (generated)
-├── assets/                # basemap.png copied here at build time (generated)
+├── birds/                 # one canonical page per species ever published (generated)
+├── assets/                # site.css + basemap.png, written/copied at build time (generated)
 ├── CNAME.example          # copy to CNAME for custom domain setup
 ├── .env.example           # environment variable template
 ├── pyproject.toml         # dependencies and uv metadata
