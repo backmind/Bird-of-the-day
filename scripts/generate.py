@@ -247,6 +247,57 @@ def _apply_description_policy(
     return desc, source
 
 
+def _publication_context(raw_entries: list[dict]) -> list[tuple[int, str]]:
+    """Per history entry, ``(ordinal, previous publication date)``.
+
+    The ordinal is how many times the species had already been published
+    before this entry, so a debut is 0. The date is the previous
+    publication's, or empty when there is none. Both are derived from
+    history rather than stored in it: nothing to migrate, and nothing that
+    can drift out of sync with the entries it describes.
+    """
+    context: list[tuple[int, str]] = []
+    seen: dict[str, tuple[int, str]] = {}
+    for raw in raw_entries:
+        code = raw.get("speciesCode") or ""
+        count, last_date = seen.get(code, (0, ""))
+        context.append((count, last_date))
+        if code:
+            seen[code] = (count + 1, raw.get("date", ""))
+    return context
+
+
+def _seen_asset_ids(raw_entries: list[dict], species_code: str) -> frozenset[str]:
+    """Photographs this species has already been published with."""
+    ids = (
+        image_fetcher.asset_id_from_url(e.get("imageUrl"))
+        for e in raw_entries
+        if e.get("speciesCode") == species_code
+    )
+    return frozenset(i for i in ids if i)
+
+
+def _image_for(raw: dict, code: str, ordinal: int) -> image_fetcher.ImageResult:
+    """The photograph a history entry was published with.
+
+    Prefers the per-publication cache, which carries the asset id and the
+    search URL. Falls back to what history recorded, the only source for
+    entries published before photographs were cached per publication.
+    """
+    cached = image_fetcher.load_cached_image(code, str(CACHE_DIR), ordinal=ordinal)
+    if cached is not None:
+        return cached
+    return image_fetcher.ImageResult(
+        url=raw.get("imageUrl"),
+        asset_id=None,
+        photographer=raw.get("photographer", ""),
+        attribution=raw.get(
+            "attribution", "Macaulay Library / Cornell Lab of Ornithology"
+        ),
+        search_url=image_fetcher.ml_search_url(code),
+    )
+
+
 def _build_site_entries(
     history: dict, description_policy: str = "foreign_fallback"
 ) -> list[site_builder.SiteEntry]:
@@ -263,21 +314,15 @@ def _build_site_entries(
     cache_dir = str(CACHE_DIR)
     raw_entries = history.get("entries", [])
     total = len(raw_entries)
+    context = _publication_context(raw_entries)
     for i, raw in enumerate(reversed(raw_entries)):
         code = raw.get("speciesCode")
         if not code:
             continue
         publication_number = total - i
+        ordinal, previous_date = context[publication_number - 1]
 
-        image = image_fetcher.load_cached_image(code, cache_dir)
-        if image is None:
-            image = image_fetcher.ImageResult(
-                url=raw.get("imageUrl"),
-                asset_id=None,
-                photographer=raw.get("photographer", ""),
-                attribution=raw.get("attribution", "Macaulay Library / Cornell Lab of Ornithology"),
-                search_url=f"https://search.macaulaylibrary.org/catalog?taxonCode={code}&mediaType=photo&sort=rating_rank_desc",
-            )
+        image = _image_for(raw, code, ordinal)
 
         content = content_scraper.load_cached_content(code, cache_dir)
         if content is None:
@@ -320,6 +365,7 @@ def _build_site_entries(
                 iucn_birdlife_url=content.iucn_birdlife_url,
                 enriched_prose=enriched.prose if enriched else "",
                 enriched_identification=enriched.identification if enriched else None,
+                previous_date=previous_date,
             )
         )
     return entries
@@ -435,16 +481,18 @@ def _rebuild_feed(
 
     all_feed_entries: list[feed_builder.FeedEntry] = []
     total = len(history["entries"])
+    context = _publication_context(history["entries"])
     for i, raw in enumerate(reversed(history["entries"])):
         fc = raw["speciesCode"]
         publication_number = total - i
+        ordinal, previous_date = context[publication_number - 1]
         # The item's own destination on our site. Without feed_link no
         # absolute URL can be formed, and both the item link and the
         # photo fall back to eBird.
         species_page_abs = (
             urls.absolute(feed_link, urls.species_url(fc)) if feed_link else ""
         )
-        fi = image_fetcher.load_cached_image(fc, str(CACHE_DIR))
+        fi = _image_for(raw, fc, ordinal)
         fco = content_scraper.load_cached_content(fc, str(CACHE_DIR))
         if fco is None:
             fco = content_scraper.SpeciesContent(
@@ -466,9 +514,9 @@ def _rebuild_feed(
             species_code=fc,
             common_name=raw["comName"],
             scientific_name=raw["sciName"],
-            image_url=fi.url if fi else None,
-            image_attribution=fi.attribution if fi else "",
-            ml_search_url=fi.search_url if fi else "",
+            image_url=fi.url,
+            image_attribution=fi.attribution,
+            ml_search_url=fi.search_url,
             description=fd,
             description_source=fs,
             bow_intro=fco.bow_intro,
@@ -499,9 +547,9 @@ def _rebuild_feed(
                 common_name=raw["comName"],
                 scientific_name=raw["sciName"],
                 description_html=fhtml,
-                image_url=fi.url if fi else None,
-                image_attribution=fi.attribution if fi else "",
-                ml_search_url=fi.search_url if fi else "",
+                image_url=fi.url,
+                image_attribution=fi.attribution,
+                ml_search_url=fi.search_url,
                 pub_date=fpub,
                 guid=fguid,
                 link=species_page_abs,
@@ -609,13 +657,20 @@ def _select_and_fetch(
             species["comName"], species["sciName"], species_code,
         )
 
-        image = image_fetcher.load_cached_image(species_code, str(CACHE_DIR))
+        ordinal = published_codes.count(species_code)
+        image = image_fetcher.load_cached_image(
+            species_code, str(CACHE_DIR), ordinal=ordinal
+        )
         if image is None:
             logger.info("Fetching image for %s", species_code)
             image = image_fetcher.fetch_image(
-                species_code, session=session, locale=ebird_locale
+                species_code, session=session, locale=ebird_locale,
+                ordinal=ordinal,
+                seen_asset_ids=_seen_asset_ids(history_entries, species_code),
             )
-            image_fetcher.save_cached_image(species_code, image, str(CACHE_DIR))
+            image_fetcher.save_cached_image(
+                species_code, image, str(CACHE_DIR), ordinal=ordinal
+            )
         else:
             logger.info("Using cached image for %s", species_code)
 

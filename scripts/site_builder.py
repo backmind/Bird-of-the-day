@@ -101,6 +101,7 @@ class SiteEntry:
     iucn_birdlife_url: str = ""        # BirdLife factsheet URL
     enriched_prose: str = ""           # LLM-generated prose (enriched mode)
     enriched_identification: list[str] | None = None  # LLM ID bullets
+    previous_date: str = ""  # ISO date of this species' previous publication
 
     @property
     def anchor(self) -> str:
