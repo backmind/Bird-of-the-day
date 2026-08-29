@@ -55,6 +55,18 @@ class TestJudge:
         assert result is not None
         assert call.call_count == 1
 
+    def test_judge_key_absent_makes_single_call(self):
+        config = {"llm": {"endpoint": "http://fake", "models": ["m"],
+                          "max_retries": 0}}
+        with patch("scripts.llm_enricher._call_llm",
+                   return_value=_valid_body()) as call:
+            with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                result = enrich_species(
+                    "x", "Bird", "Aves avis", _content(), config, _catalog()
+                )
+        assert result is not None
+        assert call.call_count == 1
+
     def test_judge_pass_keeps_draft(self):
         draft = _valid_body()
         with patch("scripts.llm_enricher._call_llm",
@@ -68,17 +80,29 @@ class TestJudge:
         assert call.call_count == 2
 
     def test_judge_valid_revision_replaces_draft(self):
+        draft = _valid_body()
         revised = _valid_body()
-        revised["prose"] = _paragraph(460) + "\n\n" + _paragraph(460)
+        revised["prose"] = _paragraph(600) + "\n\n" + _paragraph(600)
+        revised["identification"] = [
+            "Pico largo y curvado",
+            "Cola blanca visible en vuelo",
+            "Canto grave repetido",
+        ]
+        # Sanity check: if the fixture ever collapses back to producing
+        # identical draft/revision text, this test can no longer tell
+        # whether the replacement logic actually ran.
+        assert revised["prose"] != draft["prose"]
         judge_reply = {"verdict": "revise", **revised}
         with patch("scripts.llm_enricher._call_llm",
-                   side_effect=[_valid_body(), judge_reply]):
+                   side_effect=[draft, judge_reply]):
             with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
                 result = enrich_species(
                     "x", "Bird", "Aves avis", _content(), _cfg(True), _catalog()
                 )
         assert result is not None
         assert result.prose == revised["prose"]
+        assert result.prose != draft["prose"]
+        assert result.identification == revised["identification"]
 
     def test_judge_invalid_revision_keeps_original(self):
         draft = _valid_body()
