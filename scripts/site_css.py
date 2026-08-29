@@ -428,6 +428,39 @@ main {
 .iucn-badge-sm:hover { transform: none; box-shadow: 0 1px 2px rgba(30,42,46,.15); }
 .iucn-badge-sm::after { display: none; }
 
+.plate-meta {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .6rem;
+}
+.republished-chip {
+  display: inline-block;
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: .74rem;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: .02em;
+  line-height: 1;
+  color: var(--ink-soft);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: .32em .7em;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color .2s ease, border-color .2s ease;
+}
+a.republished-chip:hover {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+.card .republished-chip {
+  font-size: .66rem;
+  padding: .26em .6em;
+  margin-top: .5rem;
+}
+
 .plate-description {
   font-size: 1.04rem;
   line-height: 1.72;

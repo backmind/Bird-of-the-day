@@ -84,6 +84,7 @@ def build_entry_html(
     number: int = 0,
     date: str = "",
     species_page_url: str = "",
+    previous_date: str = "",
 ) -> str:
     """Build the HTML body of one RSS item.
 
@@ -116,6 +117,18 @@ def build_entry_html(
         head_bits.append(f"№ {number}")
     if date:
         head_bits.append(_esc(date.replace("-", " · ")))
+    if previous_date:
+        chip = catalog.t(
+            "republished.chip_template",
+            date=previous_date.replace("-", " · "),
+        )
+        # Without a feed_link there is no absolute URL to point at, so the
+        # fact is stated without a link rather than dropped.
+        head_bits.append(
+            f'<a href="{_esc(species_page_url)}">{_esc(chip)}</a>'
+            if species_page_url
+            else _esc(chip)
+        )
     if head_bits:
         parts.append(f"<p><small>{' · '.join(head_bits)}</small></p>")
 

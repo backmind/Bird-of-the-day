@@ -552,6 +552,7 @@ def _rebuild_feed(
             number=publication_number,
             date=raw["date"],
             species_page_url=species_page_abs,
+            previous_date=previous_date,
         )
         fguid = urls.feed_guid(fc, raw["date"])
         fpub = existing_pub_by_guid.get(fguid, format_datetime(now))

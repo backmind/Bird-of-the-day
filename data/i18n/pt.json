@@ -29,6 +29,7 @@
   "archive.months_heading": "Todos os meses",
 
   "species.history_heading": "Histórico de publicação",
+  "republished.chip_template": "Já publicada: {date}",
 
   "identification.label": "Identificação em campo",
   "iucn.LC": "Pouco Preocupante",

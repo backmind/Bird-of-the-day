@@ -204,6 +204,26 @@ def _render_footer(ctx: RenderContext) -> str:
 """.strip()
 
 
+def _republished_chip(entry: SiteEntry, ctx: RenderContext, *, link: bool) -> str:
+    """The pill that says this species has been published before.
+
+    Not a link inside a card: the card is already one anchor to the very
+    page the chip would point at, and nesting anchors is invalid HTML.
+    """
+    if not entry.previous_date:
+        return ""
+    label = ctx.catalog.t(
+        "republished.chip_template",
+        date=entry.previous_date.replace("-", " · "),
+    )
+    if not link:
+        return f'<span class="republished-chip">{_esc(label)}</span>'
+    return (
+        f'<a class="republished-chip" href="{_esc(ctx.u(entry.species_url))}">'
+        f"{_esc(label)}</a>"
+    )
+
+
 def _specimen_tag(taxonomy: dict) -> str:
     """Inline 'family · order' tag rendered above the title.
 
@@ -385,11 +405,16 @@ def render_plate(
                 f'aria-label="{_esc(iucn_label)}">{_esc(entry.iucn_code)}</span>'
             )
 
+    republished_html = _republished_chip(entry, ctx, link=True)
+
     return f"""
 <{tag} class="{classes}"{anchor_attr}{aria}>
   <div class="plate-head">
     {number_html}
-    <span class="plate-date">{_esc(entry.date_dotted)}</span>
+    <span class="plate-meta">
+      <span class="plate-date">{_esc(entry.date_dotted)}</span>
+      {republished_html}
+    </span>
   </div>
   <div class="plate-rule"><span class="ornament">❦</span></div>
   {image_block}
@@ -486,6 +511,8 @@ def render_card(entry: SiteEntry, ctx: RenderContext) -> str:
             f'{_esc(entry.iucn_code)}</span>'
         )
 
+    republished_html = _republished_chip(entry, ctx, link=False)
+
     return f"""
 <article class="card">
   <a href="{_esc(ctx.u(entry.species_url))}">
@@ -497,6 +524,7 @@ def render_card(entry: SiteEntry, ctx: RenderContext) -> str:
     <h3 class="card-name">{_esc(entry.common_name)}</h3>
     <p class="card-sci">{_esc(entry.scientific_name)}{card_iucn}</p>
     {family_tag}
+    {republished_html}
   </a>
 </article>
 """.strip()

@@ -29,6 +29,7 @@
   "archive.months_heading": "Tous les mois",
 
   "species.history_heading": "Historique de publication",
+  "republished.chip_template": "Déjà publiée : {date}",
 
   "identification.label": "Identification sur le terrain",
   "iucn.LC": "Préoccupation mineure",

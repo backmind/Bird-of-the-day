@@ -29,6 +29,7 @@
   "archive.months_heading": "All months",
 
   "species.history_heading": "Publication history",
+  "republished.chip_template": "Previously published: {date}",
 
   "identification.label": "Field identification",
   "iucn.LC": "Least Concern",
