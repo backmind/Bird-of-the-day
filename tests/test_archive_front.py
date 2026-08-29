@@ -70,7 +70,33 @@ def test_shim_pattern_matches_the_anchor_format_the_site_emits(ctx, entries):
     assert r"/^#bird-[a-z0-9]+-(\d{4}-\d{2})-\d{2}$/" in html
 
 
+def test_shim_bucket_filename_literal_is_derived_from_urls(ctx, entries):
+    html = archive_builder.build_archive_front(entries, ctx)
+    # Not a copy of the format: built from urls.bucket_filename_for_month
+    # itself, so a change to the scheme there flows through automatically.
+    expected = urls.bucket_filename_for_month("2026-08").replace(
+        "2026-08", "'+m[1]+'"
+    )
+    assert expected in html
+
+
+def test_shim_anchor_prefix_literal_is_derived_from_urls(ctx, entries):
+    html = archive_builder.build_archive_front(entries, ctx)
+    # Same argument for the anchor prefix: derived from urls.entry_anchor,
+    # not retyped as a literal "bird-" in the shim.
+    anchor_prefix = urls.entry_anchor("X", "Y").split("X")[0]
+    assert f"#{anchor_prefix}[a-z0-9]+-" in html
+
+
 def test_empty_history_renders_the_empty_notice(ctx):
     html = archive_builder.build_archive_front([], ctx)
     assert "archive is empty" in html.lower()
     assert html.startswith("<!DOCTYPE html>")
+
+
+def test_empty_history_still_carries_the_legacy_shim(ctx):
+    # A legacy link can arrive while the archive is empty; it must still
+    # redirect instead of stranding the reader with no script at all.
+    html = archive_builder.build_archive_front([], ctx)
+    assert "location.replace('archive-'" in html
+    assert "/^#bird-" in html

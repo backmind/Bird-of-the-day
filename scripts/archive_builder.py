@@ -64,16 +64,24 @@ def _month_nav(
     )
 
 
-# Links already delivered to RSS readers point at
-# ``archive.html#bird-{code}-{date}``. The month is inside the fragment,
-# so the redirect needs no lookup table. Without JavaScript the reader
-# lands on the archive front page: degraded, not broken.
-_LEGACY_ANCHOR_SHIM = (
-    "<script>(function(){"
-    "var m=/^#bird-[a-z0-9]+-(\\d{4}-\\d{2})-\\d{2}$/.exec(location.hash);"
-    "if(m){location.replace('archive-'+m[1]+'.html'+location.hash);}"
-    "})();</script>"
-)
+def _legacy_anchor_shim() -> str:
+    """Redirect legacy ``archive.html#bird-{code}-{date}`` fragments.
+
+    The month is inside the fragment, so no lookup table is needed. The
+    two format literals are derived from :mod:`scripts.urls` rather than
+    copied, so a change to the URL scheme cannot silently orphan links
+    that readers already hold.
+    """
+    sentinel = "0000-00"
+    head, _, tail = urls.bucket_filename_for_month(sentinel).partition(sentinel)
+    anchor_head, _, _ = urls.entry_anchor("\x00", "\x01").partition("\x00")
+    return (
+        "<script>(function(){"
+        f"var m=/^#{anchor_head}[a-z0-9]+-(\\d{{4}}-\\d{{2}})-\\d{{2}}$/"
+        ".exec(location.hash);"
+        f"if(m){{location.replace('{head}'+m[1]+'{tail}'+location.hash);}}"
+        "})();</script>"
+    )
 
 
 def _month_index(months: list[tuple[str, list[SiteEntry]]], ctx: RenderContext) -> str:
@@ -112,7 +120,11 @@ def build_archive_front(entries: list[SiteEntry], ctx: RenderContext) -> str:
     t = ctx.catalog.t
     title = t("page.archive_title_template")
     if not entries:
-        body = f'<p>{_esc(t("archive.empty"))}</p>\n' + site_builder.render_subscribe(ctx)
+        body = (
+            f'<p>{_esc(t("archive.empty"))}</p>\n'
+            + site_builder.render_subscribe(ctx)
+            + _legacy_anchor_shim()
+        )
         return site_builder.render_page(title, body, ctx, active="archive")
 
     months = group_by_month(entries)
@@ -130,7 +142,7 @@ def build_archive_front(entries: list[SiteEntry], ctx: RenderContext) -> str:
         f"{_esc(month_label(ctx, current_month))}</span></div>",
         f'<div class="grid">\n{cards}\n</div>',
         _month_index(months, ctx),
-        _LEGACY_ANCHOR_SHIM,
+        _legacy_anchor_shim(),
     ]
     return site_builder.render_page(
         title, "\n".join(body_parts), ctx, active="archive"
