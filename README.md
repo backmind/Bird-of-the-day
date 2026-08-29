@@ -48,6 +48,21 @@ would be a byte-for-byte duplicate. The pages follow the same rule and
 only link `feed-full.xml` when it is published, so no page ever
 advertises a file that is not there.
 
+An instance that is already running keeps its own `data/config.json`,
+which is gitignored and therefore never updated by a `git pull`, so
+setting the cap on an existing deployment is a manual edit (or a
+`BOTD_MAX_FEED_ENTRIES` on the container). Until `max_feed_entries` is
+set there, nothing changes: `feed.xml` stays uncapped, no `feed-full.xml`
+is written, and the pages link no second feed.
+
+Item bodies outside the cap window are reused exactly as published, so
+`feed-full.xml` grows by one item a day. An entry the backfill repairs is
+re-rendered automatically, but a purely retroactive edit is not: a
+corrected common name, a new cross-link or a catalog change only reaches
+the frozen part of the history when you ask for it with
+`BOTD_FEED_REBUILD_ALL=1` (or `"feed_rebuild_all": true` in the config),
+which re-renders every item once and then goes back to reusing them.
+
 Everything is server-rendered HTML — no JavaScript framework, no build
 step. Two small pieces of vanilla JS are inlined: a theme switcher that
 persists light/dark preference in `localStorage`, and, on `archive.html`

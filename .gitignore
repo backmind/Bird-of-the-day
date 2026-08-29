@@ -27,6 +27,7 @@ data/config.json
 CNAME
 history.json
 feed.xml
+feed-full.xml
 index.html
 archive.html
 cache/*
