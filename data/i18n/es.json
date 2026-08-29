@@ -8,6 +8,12 @@
   "nav.home": "Hoy",
   "nav.archive": "Archivo",
   "nav.rss": "RSS",
+  "nav.pagination_aria": "Navegación del archivo",
+  "nav.older_month": "Mes anterior",
+  "nav.newer_month": "Mes siguiente",
+  "nav.back_to_archive": "Volver al archivo",
+  "nav.older_plate": "Lámina anterior",
+  "nav.newer_plate": "Lámina siguiente",
   "theme_toggle.aria_label": "Cambiar tema claro/oscuro",
 
   "subscribe.aria_label": "Suscríbete al RSS",
@@ -18,6 +24,10 @@
   "section.recent": "Aves recientes",
   "section.archive_title": "Archivo",
   "section.archive_subtitle": "Todas las aves publicadas hasta la fecha.",
+  "archive.month_subtitle_template": "Publicaciones de este mes: {count}.",
+  "archive.months_heading": "Todos los meses",
+
+  "species.history_heading": "Historial de publicación",
 
   "identification.label": "Identificación en campo",
   "iucn.LC": "Preocupación Menor",
@@ -39,6 +49,8 @@
 
   "page.home_hero_title_template": "{name} — Ave del Día",
   "page.archive_title_template": "Archivo — Ave del Día",
+  "page.bucket_title_template": "{month} · Archivo · Ave del Día",
+  "page.species_title_template": "{name} · Ficha · Ave del Día",
 
   "description.foreign_disclaimer": "Descripción en {source_language} (no disponible en español).",
   "description.empty_marker": "—",
@@ -53,5 +65,18 @@
   "feed.title": "Ave del Día",
   "feed.description": "Cada día, una nueva especie de ave.",
   "feed.copyright_data_prefix": "Datos: eBird/Cornell Lab of Ornithology (ebird.org). Fotos: Macaulay Library, © sus respectivos autores. ",
-  "feed.copyright_author_template": "Feed © {year} Yass Fuentes, proyecto no comercial."
+  "feed.copyright_author_template": "Feed © {year} Yass Fuentes, proyecto no comercial.",
+
+  "month.1": "Enero",
+  "month.2": "Febrero",
+  "month.3": "Marzo",
+  "month.4": "Abril",
+  "month.5": "Mayo",
+  "month.6": "Junio",
+  "month.7": "Julio",
+  "month.8": "Agosto",
+  "month.9": "Septiembre",
+  "month.10": "Octubre",
+  "month.11": "Noviembre",
+  "month.12": "Diciembre"
 }

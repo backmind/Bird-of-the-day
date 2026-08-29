@@ -8,6 +8,12 @@
   "nav.home": "Hoje",
   "nav.archive": "Arquivo",
   "nav.rss": "RSS",
+  "nav.pagination_aria": "Navegação do arquivo",
+  "nav.older_month": "Mês anterior",
+  "nav.newer_month": "Mês seguinte",
+  "nav.back_to_archive": "Voltar ao arquivo",
+  "nav.older_plate": "Prancha anterior",
+  "nav.newer_plate": "Prancha seguinte",
   "theme_toggle.aria_label": "Alternar tema claro/escuro",
 
   "subscribe.aria_label": "Subscrever RSS",
@@ -18,6 +24,10 @@
   "section.recent": "Aves recentes",
   "section.archive_title": "Arquivo",
   "section.archive_subtitle": "Todas as aves publicadas até à data.",
+  "archive.month_subtitle_template": "Publicações deste mês: {count}.",
+  "archive.months_heading": "Todos os meses",
+
+  "species.history_heading": "Histórico de publicação",
 
   "identification.label": "Identificação em campo",
   "iucn.LC": "Pouco Preocupante",
@@ -39,6 +49,8 @@
 
   "page.home_hero_title_template": "{name} — Ave do Dia",
   "page.archive_title_template": "Arquivo — Ave do Dia",
+  "page.bucket_title_template": "{month} · Arquivo · Ave do Dia",
+  "page.species_title_template": "{name} · Ficha · Ave do Dia",
 
   "description.foreign_disclaimer": "Descrição em {source_language} (tradução em português indisponível).",
   "description.empty_marker": "—",
@@ -53,5 +65,18 @@
   "feed.title": "Ave do Dia",
   "feed.description": "Uma nova espécie de ave todos os dias.",
   "feed.copyright_data_prefix": "Dados: eBird/Cornell Lab of Ornithology (ebird.org). Fotos: Macaulay Library, © dos respetivos autores. ",
-  "feed.copyright_author_template": "Feed © {year} Yass Fuentes, projeto não comercial."
+  "feed.copyright_author_template": "Feed © {year} Yass Fuentes, projeto não comercial.",
+
+  "month.1": "Janeiro",
+  "month.2": "Fevereiro",
+  "month.3": "Março",
+  "month.4": "Abril",
+  "month.5": "Maio",
+  "month.6": "Junho",
+  "month.7": "Julho",
+  "month.8": "Agosto",
+  "month.9": "Setembro",
+  "month.10": "Outubro",
+  "month.11": "Novembro",
+  "month.12": "Dezembro"
 }

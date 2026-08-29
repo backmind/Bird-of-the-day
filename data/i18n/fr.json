@@ -8,6 +8,12 @@
   "nav.home": "Aujourd'hui",
   "nav.archive": "Archives",
   "nav.rss": "RSS",
+  "nav.pagination_aria": "Navigation des archives",
+  "nav.older_month": "Mois précédent",
+  "nav.newer_month": "Mois suivant",
+  "nav.back_to_archive": "Retour aux archives",
+  "nav.older_plate": "Planche précédente",
+  "nav.newer_plate": "Planche suivante",
   "theme_toggle.aria_label": "Changer de thème clair/sombre",
 
   "subscribe.aria_label": "S'abonner au RSS",
@@ -18,6 +24,10 @@
   "section.recent": "Oiseaux récents",
   "section.archive_title": "Archives",
   "section.archive_subtitle": "Tous les oiseaux publiés à ce jour.",
+  "archive.month_subtitle_template": "Publications de ce mois : {count}.",
+  "archive.months_heading": "Tous les mois",
+
+  "species.history_heading": "Historique de publication",
 
   "identification.label": "Identification sur le terrain",
   "iucn.LC": "Préoccupation mineure",
@@ -39,6 +49,8 @@
 
   "page.home_hero_title_template": "{name} — Oiseau du Jour",
   "page.archive_title_template": "Archives — Oiseau du Jour",
+  "page.bucket_title_template": "{month} · Archives · Oiseau du Jour",
+  "page.species_title_template": "{name} · Fiche · Oiseau du Jour",
 
   "description.foreign_disclaimer": "Description en {source_language} (traduction française non disponible).",
   "description.empty_marker": "—",
@@ -53,5 +65,18 @@
   "feed.title": "Oiseau du Jour",
   "feed.description": "Une nouvelle espèce d'oiseau chaque jour.",
   "feed.copyright_data_prefix": "Données : eBird/Cornell Lab of Ornithology (ebird.org). Photos : Macaulay Library, © leurs auteurs respectifs. ",
-  "feed.copyright_author_template": "Flux © {year} Yass Fuentes, projet non commercial."
+  "feed.copyright_author_template": "Flux © {year} Yass Fuentes, projet non commercial.",
+
+  "month.1": "Janvier",
+  "month.2": "Février",
+  "month.3": "Mars",
+  "month.4": "Avril",
+  "month.5": "Mai",
+  "month.6": "Juin",
+  "month.7": "Juillet",
+  "month.8": "Août",
+  "month.9": "Septembre",
+  "month.10": "Octobre",
+  "month.11": "Novembre",
+  "month.12": "Décembre"
 }

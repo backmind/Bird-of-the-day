@@ -8,6 +8,12 @@
   "nav.home": "Today",
   "nav.archive": "Archive",
   "nav.rss": "RSS",
+  "nav.pagination_aria": "Archive navigation",
+  "nav.older_month": "Previous month",
+  "nav.newer_month": "Next month",
+  "nav.back_to_archive": "Back to the archive",
+  "nav.older_plate": "Previous plate",
+  "nav.newer_plate": "Next plate",
   "theme_toggle.aria_label": "Toggle light/dark theme",
 
   "subscribe.aria_label": "Subscribe via RSS",
@@ -18,6 +24,10 @@
   "section.recent": "Recent birds",
   "section.archive_title": "Archive",
   "section.archive_subtitle": "Every bird published so far.",
+  "archive.month_subtitle_template": "Entries published this month: {count}.",
+  "archive.months_heading": "All months",
+
+  "species.history_heading": "Publication history",
 
   "identification.label": "Field identification",
   "iucn.LC": "Least Concern",
@@ -39,6 +49,8 @@
 
   "page.home_hero_title_template": "{name} — Bird of the Day",
   "page.archive_title_template": "Archive — Bird of the Day",
+  "page.bucket_title_template": "{month} · Archive · Bird of the Day",
+  "page.species_title_template": "{name} · Species page · Bird of the Day",
 
   "description.foreign_disclaimer": "Description in {source_language} (no English translation available).",
   "description.empty_marker": "—",
@@ -53,5 +65,18 @@
   "feed.title": "Bird of the Day",
   "feed.description": "A new bird species every day.",
   "feed.copyright_data_prefix": "Data: eBird/Cornell Lab of Ornithology (ebird.org). Photos: Macaulay Library, © their respective authors. ",
-  "feed.copyright_author_template": "Feed © {year} Yass Fuentes, non-commercial project."
+  "feed.copyright_author_template": "Feed © {year} Yass Fuentes, non-commercial project.",
+
+  "month.1": "January",
+  "month.2": "February",
+  "month.3": "March",
+  "month.4": "April",
+  "month.5": "May",
+  "month.6": "June",
+  "month.7": "July",
+  "month.8": "August",
+  "month.9": "September",
+  "month.10": "October",
+  "month.11": "November",
+  "month.12": "December"
 }
