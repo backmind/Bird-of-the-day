@@ -51,11 +51,12 @@ CONFIG_PATH = BASE_DIR / "data" / "config.json"
 CONFIG_EXAMPLE_PATH = BASE_DIR / "data" / "config.example.json"
 ENV_PATH = BASE_DIR / ".env"
 
-# State-anchored (written at runtime, lives on the volume in Docker)
+# State-anchored (written at runtime, lives on the volume in Docker).
+# The two feed files deliberately have no constants here: both are
+# derived from the ``state_dir`` handed to _rebuild_feed, so the paths
+# it reads and the path it writes can never point at different places.
 CACHE_DIR = STATE_DIR / "cache"
 MAPS_DIR = STATE_DIR / "maps"
-FEED_PATH = STATE_DIR / "feed.xml"
-FEED_FULL_PATH = STATE_DIR / urls.FEED_FULL_FILE
 HISTORY_PATH = STATE_DIR / "history.json"
 
 
@@ -112,6 +113,19 @@ def _as_bool(value: str) -> bool:
     cannot be reused for flags.
     """
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _config_flag(config: dict, key: str) -> bool:
+    """Read a boolean config value that may have been hand-edited.
+
+    ``config.json`` can hold a real JSON boolean, but a hand-edited file
+    often holds the string ``"false"``, and ``bool("false")`` is True.
+    Strings go through the same parser the env overrides use; every other
+    type keeps Python's own truthiness, so a real ``false`` is still
+    false and a missing key is still false.
+    """
+    value = config.get(key, False)
+    return _as_bool(value) if isinstance(value, str) else bool(value)
 
 
 # Scalar config keys that may be overridden by environment variables. The
@@ -351,12 +365,21 @@ def _rebuild_feed(
     code_to_localized: dict,
     published_anchors_abs: dict,
     now: datetime,
+    *,
+    state_dir: Path = STATE_DIR,
 ) -> tuple[dict[str, str], dict]:
     """Full-rebuild the RSS feeds from history.
 
     Every entry gets fresh name-linker output so cross-links to newly
     published species appear retroactively in older entries. pubDates are
     preserved from the existing feed via a pre-pass lookup.
+
+    ``state_dir`` is where both feeds are read back from and written to.
+    It has a default so the public behaviour is unchanged, but both call
+    sites pass it explicitly: reading through module constants while
+    writing through the global made the two halves divergeable, and a
+    test that redirected only one of them silently read the repository's
+    own published feed.
 
     Returns ``(composed_paths, feed_result)``: ``composed_paths`` is the
     ``species_code`` to relative-path map of composed distribution maps,
@@ -368,7 +391,10 @@ def _rebuild_feed(
     # published, and on the run that introduces the cap it is still the
     # only file that exists.
     existing_pub_by_guid: dict[str, str] = {}
-    for source in (FEED_FULL_PATH, FEED_PATH):
+    for source in (
+        state_dir / urls.FEED_FULL_FILE,
+        state_dir / urls.FEED_FILE,
+    ):
         for e in feed_builder.load_existing_feed(str(source)):
             if e.pub_date:
                 existing_pub_by_guid[e.guid] = e.pub_date
@@ -459,8 +485,8 @@ def _rebuild_feed(
         all_feed_entries,
         config,
         catalog,
-        STATE_DIR,
-        rebuild_all=bool(config.get("feed_rebuild_all", False)),
+        state_dir,
+        rebuild_all=_config_flag(config, "feed_rebuild_all"),
     )
     return composed_paths, feed_result
 
@@ -495,6 +521,13 @@ def _report_feed(feed_result: dict, report: run_report.RunReport) -> None:
             f"feed-full: {feed_result['full_items']} items, "
             f"{feed_result['frozen']} reused from the published feed, "
             f"{full_state}"
+        )
+    if feed_result.get("full_stale"):
+        report.warn(
+            f"{urls.FEED_FULL_FILE} is published but no longer maintained: "
+            "the feed cap is off, so nothing rewrites it and no page links "
+            "it. Set max_feed_entries above 0 to resume maintaining it, or "
+            "remove the file by hand."
         )
 
 
@@ -670,7 +703,14 @@ def main() -> None:
         # when backfill actually changed something.
         last = history["entries"][-1] if history["entries"] else None
         if last and last.get("date") == date_str:
-            if healed:
+            # The one expression that decides whether anything is
+            # republished. The log line and the report's closing line
+            # both read it, so a run that skipped the rebuild cannot
+            # claim to have rebuilt: the two taxonomy caches have their
+            # own files and their own TTLs, so linker_ok goes false on
+            # its own often enough for that lie to reach a real report.
+            rebuilding = maintenance_ok and linker_ok
+            if healed and rebuilding:
                 logger.info(
                     "Already generated for %s; backfill healed %d, rebuilding",
                     date_str, len(healed),
@@ -690,11 +730,12 @@ def main() -> None:
             # over the good version already on disk. The same argument
             # covers english_name_index, the linker's other input: an
             # outage there is just as silent and just as wide.
-            if maintenance_ok and linker_ok:
+            if rebuilding:
                 composed_paths, feed_result = _rebuild_feed(
                     history, config, catalog, description_policy,
                     english_name_index, code_to_localized,
                     published_anchors_abs, now,
+                    state_dir=STATE_DIR,
                 )
                 _report_missing_maps(history, composed_paths, report)
                 _report_feed(feed_result, report)
@@ -727,7 +768,11 @@ def main() -> None:
                 )
             report.info(
                 f"already published for {date_str}"
-                + (", outputs rebuilt after healing" if healed else "")
+                + (
+                    ", outputs rebuilt after healing"
+                    if healed and rebuilding
+                    else ""
+                )
             )
             report.emit()
             return
@@ -809,6 +854,7 @@ def main() -> None:
         composed_paths, feed_result = _rebuild_feed(
             history, config, catalog, description_policy,
             english_name_index, code_to_localized, published_anchors_abs, now,
+            state_dir=STATE_DIR,
         )
         _report_missing_maps(history, composed_paths, report)
         _report_feed(feed_result, report)

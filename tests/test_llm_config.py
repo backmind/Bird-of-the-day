@@ -68,3 +68,19 @@ class TestFeedRebuildFlag:
         assert _as_bool("0") is False
         assert _as_bool("false") is False
         assert _as_bool("") is False
+
+    def test_a_hand_edited_string_is_not_read_as_truthy(self):
+        # bool("false") is True, and this flag re-renders every item body
+        # in the full feed, so the mistake costs a whole-file diff a day.
+        from scripts.generate import _config_flag
+
+        assert _config_flag({"feed_rebuild_all": "false"}, "feed_rebuild_all") is False
+        assert _config_flag({"feed_rebuild_all": "0"}, "feed_rebuild_all") is False
+        assert _config_flag({"feed_rebuild_all": "true"}, "feed_rebuild_all") is True
+
+    def test_real_booleans_and_a_missing_key_are_unchanged(self):
+        from scripts.generate import _config_flag
+
+        assert _config_flag({"feed_rebuild_all": True}, "feed_rebuild_all") is True
+        assert _config_flag({"feed_rebuild_all": False}, "feed_rebuild_all") is False
+        assert _config_flag({}, "feed_rebuild_all") is False
