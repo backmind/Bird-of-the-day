@@ -255,7 +255,7 @@ This:
 3. Bails early if today's entry is already in `history.json`.
 4. Selects the species, fetches image and content (writing to `cache/`).
 5. Writes `feed.xml`, `index.html`, `archive.html`, one page per month
-   bucket, one page per species and `assets/site.css` — only the files
+   bucket, one page per species and `assets/site.css`; only the files
    whose content changed are rewritten.
 6. Updates `history.json`.
 
