@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from scripts import site_builder
+from scripts import archive_builder, site_builder
 from scripts.i18n import Catalog
 
 
@@ -12,7 +12,7 @@ def _catalog() -> Catalog:
 
 class TestWriteSiteAssets:
     def test_basemap_copied_into_assets(self, tmp_path):
-        site_builder.write_site([], tmp_path, catalog=_catalog())
+        archive_builder.write_site([], tmp_path, catalog=_catalog())
         asset = tmp_path / "assets" / "basemap.png"
         assert asset.exists()
         assert asset.stat().st_size > 0

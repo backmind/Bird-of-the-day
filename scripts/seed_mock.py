@@ -24,12 +24,12 @@ import sys
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from scripts import (
+    archive_builder,
     content_scraper,
     ebird_client,
     feed_builder,
     i18n,
     image_fetcher,
-    site_builder,
 )
 from scripts.generate import (
     CACHE_DIR,
@@ -333,7 +333,7 @@ def main() -> None:
     site_entries = _build_site_entries(
         history, description_policy=config.get("description_policy", "foreign_fallback")
     )
-    site_builder.write_site(
+    archive_builder.write_site(
         site_entries,
         STATE_DIR,
         catalog=catalog,

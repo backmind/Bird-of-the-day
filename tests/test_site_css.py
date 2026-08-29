@@ -4,7 +4,7 @@ of it on any style change."""
 
 from pathlib import Path
 
-from scripts import site_builder, site_css
+from scripts import archive_builder, site_builder, site_css
 from scripts.i18n import Catalog
 
 
@@ -22,6 +22,6 @@ def test_pages_link_the_stylesheet_instead_of_inlining_it():
 
 
 def test_write_site_publishes_the_stylesheet(tmp_path):
-    site_builder.write_site([], tmp_path, Catalog.load("en"))
+    archive_builder.write_site([], tmp_path, Catalog.load("en"))
     published = Path(tmp_path) / "assets" / "site.css"
     assert published.read_text(encoding="utf-8") == site_css.CSS

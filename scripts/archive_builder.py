@@ -12,9 +12,16 @@ changes when its content genuinely changes.
 from __future__ import annotations
 
 import logging
+import shutil
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-from scripts import esc_html as _esc, site_builder, urls
+from scripts import atomic_io, esc_html as _esc, site_builder, site_css, urls
+from scripts.map_composer import BASEMAP_PATH as _BASEMAP_ASSET
 from scripts.site_builder import RenderContext, SiteEntry
+
+if TYPE_CHECKING:
+    from scripts.i18n import Catalog
 
 logger = logging.getLogger(__name__)
 
@@ -282,3 +289,88 @@ def build_month_bucket(
         ctx,
         active="archive",
     )
+
+
+def _neighbours(
+    entries: list[SiteEntry], position: int
+) -> tuple[SiteEntry | None, SiteEntry | None]:
+    """The plates published just before and just after ``entries[position]``.
+
+    ``entries`` is newest first, so the newer neighbour sits at the lower
+    index. Returns ``(older, newer)``. Positions are looked up by identity
+    in the caller, not by value: ``list.index`` on a twenty-field
+    dataclass would compare every field of every entry.
+    """
+    older = entries[position + 1] if position + 1 < len(entries) else None
+    newer = entries[position - 1] if position > 0 else None
+    return older, newer
+
+
+def write_site(
+    entries: list[SiteEntry],
+    output_dir: Path,
+    catalog: "Catalog",
+    feed_link: str = "",
+    english_name_index: dict | None = None,
+    code_to_localized: dict | None = None,
+    published_anchors: dict | None = None,
+) -> dict[str, int]:
+    """Render every page and write the ones whose content changed.
+
+    Returns ``{"pages": total, "written": n, "unchanged": n}``. Rendering
+    the whole site costs milliseconds, so there is no incremental mode to
+    keep in sync: correctness comes from always rendering everything,
+    small diffs come from only writing what differs.
+    """
+    ctx = RenderContext(
+        catalog=catalog,
+        feed_link=feed_link,
+        english_name_index=english_name_index or {},
+        code_to_localized=code_to_localized or {},
+        published_anchors=published_anchors or {},
+    )
+    output_dir = Path(output_dir)
+    assets_dir = output_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    # The atlas sections must never depend on a third-party tile server.
+    try:
+        shutil.copyfile(_BASEMAP_ASSET, assets_dir / "basemap.png")
+    except OSError:
+        logger.warning("Could not publish basemap asset from %s", _BASEMAP_ASSET)
+    atomic_io.write_text_if_changed(output_dir / urls.STYLESHEET, site_css.CSS)
+
+    pages: dict[str, str] = {
+        urls.INDEX_PAGE: site_builder.build_index(entries, ctx),
+        urls.ARCHIVE_FRONT: build_archive_front(entries, ctx),
+    }
+
+    months = group_by_month(entries)
+    for position, (month, month_entries) in enumerate(months):
+        newer = months[position - 1][0] if position > 0 else ""
+        older = months[position + 1][0] if position + 1 < len(months) else ""
+        pages[urls.bucket_filename_for_month(month)] = build_month_bucket(
+            month, month_entries, ctx, newer_month=newer, older_month=older
+        )
+
+    species_ctx = site_builder.for_subdirectory(ctx, "../")
+    positions = {id(entry): index for index, entry in enumerate(entries)}
+    for code, publications in group_by_species(entries).items():
+        older_entry, newer_entry = _neighbours(entries, positions[id(publications[0])])
+        pages[urls.species_filename(code)] = build_species_page(
+            publications, species_ctx, older=older_entry, newer=newer_entry
+        )
+
+    written = 0
+    for relative_path, html in pages.items():
+        if atomic_io.write_text_if_changed(output_dir / relative_path, html):
+            written += 1
+
+    logger.info(
+        "Site written: %d of %d pages changed (%d entries)",
+        written, len(pages), len(entries),
+    )
+    return {
+        "pages": len(pages),
+        "written": written,
+        "unchanged": len(pages) - written,
+    }

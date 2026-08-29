@@ -21,6 +21,7 @@ from pathlib import Path
 import requests
 
 from scripts import (
+    archive_builder,
     backfill,
     content_scraper,
     ebird_client,
@@ -31,6 +32,7 @@ from scripts import (
     map_composer,
     run_report,
     site_builder,
+    urls,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -303,8 +305,10 @@ def _build_indexes(
     """Build cross-reference indexes for the name linker.
 
     Returns ``(code_to_localized, published_anchors, published_anchors_abs)``.
-    ``published_anchors`` uses relative archive URLs; ``published_anchors_abs``
-    prepends the ``feed_link`` base so RSS readers can resolve them.
+    ``published_anchors`` maps each species to its canonical page (never a
+    dated archive anchor, so the link never rots as new plates are
+    published); ``published_anchors_abs`` prepends the ``feed_link`` base
+    so RSS readers can resolve them.
 
     ``ebird_locale`` must be the resolved locale for the run. This function
     can be the first taxonomy load of a run, and ``get_full_taxonomy``
@@ -319,12 +323,9 @@ def _build_indexes(
     published_anchors: dict[str, str] = {}
     published_anchors_abs: dict[str, str] = {}
     for h in history["entries"]:
-        hc, hd = h["speciesCode"], h["date"]
-        published_anchors[hc] = f"archive.html#bird-{hc}-{hd}"
-        published_anchors_abs[hc] = (
-            f"{feed_link.rstrip('/')}/archive.html#bird-{hc}-{hd}"
-            if feed_link else published_anchors[hc]
-        )
+        hc = h["speciesCode"]
+        published_anchors[hc] = urls.species_url(hc)
+        published_anchors_abs[hc] = urls.absolute(feed_link, urls.species_url(hc))
 
     return code_to_localized, published_anchors, published_anchors_abs
 
@@ -414,7 +415,7 @@ def _rebuild_feed(
             code_to_localized=code_to_localized,
             published_anchors=published_anchors_abs,
         )
-        fguid = f"bird-of-the-day-{fc}-{raw['date']}"
+        fguid = urls.feed_guid(fc, raw["date"])
         fpub = existing_pub_by_guid.get(fguid, format_datetime(now))
         all_feed_entries.append(
             feed_builder.FeedEntry(
@@ -627,7 +628,7 @@ def main() -> None:
                 site_entries = _build_site_entries(
                     history, description_policy=description_policy
                 )
-                site_builder.write_site(
+                site_result = archive_builder.write_site(
                     site_entries,
                     STATE_DIR,
                     catalog=catalog,
@@ -635,6 +636,10 @@ def main() -> None:
                     english_name_index=english_name_index,
                     code_to_localized=code_to_localized,
                     published_anchors=published_anchors,
+                )
+                report.info(
+                    f"site: {site_result['written']} of {site_result['pages']} pages "
+                    f"written, {site_result['unchanged']} unchanged"
                 )
             else:
                 logger.info("Already generated for %s, skipping", date_str)
@@ -727,7 +732,7 @@ def main() -> None:
 
         # 6. Generate the static site.
         site_entries = _build_site_entries(history, description_policy=description_policy)
-        site_builder.write_site(
+        site_result = archive_builder.write_site(
             site_entries,
             STATE_DIR,
             catalog=catalog,
@@ -735,6 +740,10 @@ def main() -> None:
             english_name_index=english_name_index,
             code_to_localized=code_to_localized,
             published_anchors=published_anchors,
+        )
+        report.info(
+            f"site: {site_result['written']} of {site_result['pages']} pages "
+            f"written, {site_result['unchanged']} unchanged"
         )
 
         logger.info("Done. Today's bird: %s (%s)", common_name, scientific_name)

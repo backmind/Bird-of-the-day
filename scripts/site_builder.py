@@ -9,10 +9,8 @@ entry from history with full content and stable anchors.
 from __future__ import annotations
 
 import logging
-import shutil
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from scripts import esc_html as _esc, name_linker, site_css, urls
@@ -23,16 +21,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 INDEX_GRID_SIZE = 12
-ARCHIVE_MAX_ENTRIES = 90  # ~1 season; full pagination in a future release
 
 
 @dataclass(frozen=True)
 class RenderContext:
     """Per-render context bundle so helper signatures stay compact.
 
-    Constructed once per page (in :func:`build_index` / :func:`build_archive`)
-    and threaded through every ``_render_*`` helper. Holds the i18n catalog
-    plus the small handful of page-level scalars the helpers need.
+    Constructed once per page (in :func:`build_index` and the
+    :mod:`scripts.archive_builder` page builders) and threaded through
+    every ``_render_*`` helper. Holds the i18n catalog plus the small
+    handful of page-level scalars the helpers need.
     """
 
     catalog: "Catalog"
@@ -374,9 +372,6 @@ def render_plate(
 """.strip()
 
 
-from scripts.map_composer import BASEMAP_PATH as _BASEMAP_ASSET
-
-
 def _render_atlas(entry: SiteEntry, ctx: RenderContext, *, hero: bool = False) -> str:
     """Render the GBIF distribution map as an atlas-styled section.
 
@@ -546,71 +541,3 @@ def build_index(
         "page.home_hero_title_template", name=hero.common_name
     )
     return render_page(page_title, body, ctx, active="home")
-
-
-def build_archive(
-    entries: list[SiteEntry], ctx: RenderContext
-) -> str:
-    t = ctx.catalog.t
-    if not entries:
-        body = f'<p>{_esc(t("archive.empty"))}</p>\n' + render_subscribe(ctx)
-        return render_page(
-            t("page.archive_title_template"), body, ctx, active="archive"
-        )
-    body_parts = [
-        '<div class="archive-intro">',
-        f'<h1>{_esc(t("section.archive_title"))}</h1>',
-        f'<p>{_esc(t("section.archive_subtitle"))}</p>',
-        "</div>",
-        render_subscribe(ctx),
-    ]
-    body_parts.extend(
-        render_plate(e, ctx, hero=False)
-        for e in entries[:ARCHIVE_MAX_ENTRIES]
-    )
-    return render_page(
-        t("page.archive_title_template"),
-        "\n".join(body_parts),
-        ctx,
-        active="archive",
-    )
-
-
-def write_site(
-    entries: list[SiteEntry],
-    output_dir: Path,
-    catalog: "Catalog",
-    feed_link: str = "",
-    english_name_index: dict | None = None,
-    code_to_localized: dict | None = None,
-    published_anchors: dict | None = None,
-) -> None:
-    """Write index.html and archive.html to ``output_dir``.
-
-    The ``catalog`` is required: every user-facing string is sourced from
-    it. ``feed_link`` rounds out the per-page render context. The three
-    ``*_index`` / ``*_anchors`` dicts power the name linker (English
-    species name substitution + cross-linking to published entries).
-    """
-    ctx = RenderContext(
-        catalog=catalog,
-        feed_link=feed_link,
-        english_name_index=english_name_index or {},
-        code_to_localized=code_to_localized or {},
-        published_anchors=published_anchors or {},
-    )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    # Publish the static basemap next to the pages so the atlas sections
-    # never depend on a third-party tile server.
-    assets_dir = output_dir / "assets"
-    assets_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.copyfile(_BASEMAP_ASSET, assets_dir / "basemap.png")
-    except OSError:
-        logger.warning("Could not publish basemap asset from %s", _BASEMAP_ASSET)
-    (assets_dir / "site.css").write_text(site_css.CSS, encoding="utf-8")
-    index_html = build_index(entries, ctx)
-    archive_html = build_archive(entries, ctx)
-    (output_dir / "index.html").write_text(index_html, encoding="utf-8")
-    (output_dir / "archive.html").write_text(archive_html, encoding="utf-8")
-    logger.info("Site written: index.html, archive.html (%d entries)", len(entries))
