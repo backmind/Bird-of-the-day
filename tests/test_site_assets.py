@@ -104,9 +104,17 @@ def test_no_third_party_font_request():
 
 def test_font_faces_point_at_published_assets():
     from scripts import site_css, urls
+
     assert "@font-face" in site_css.CSS
-    assert urls.FONTS_DIR in site_css.CSS
     assert "font-display: swap" in site_css.CSS
+    # The stylesheet and the fonts share the assets/ prefix, so a src
+    # relative to the stylesheet drops it. Deriving the prefix here means
+    # moving either constant breaks this test instead of the live site.
+    stylesheet_dir = urls.STYLESHEET.rsplit("/", 1)[0]
+    assert urls.FONTS_DIR.startswith(stylesheet_dir + "/")
+    relative_dir = urls.FONTS_DIR[len(stylesheet_dir) + 1 :]
+    for filename in urls.FONT_FILES:
+        assert f"url('{relative_dir}/{filename}')" in site_css.CSS
 
 
 class TestFontPreload:
