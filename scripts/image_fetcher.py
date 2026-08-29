@@ -73,7 +73,7 @@ def new_session(accept_language: str = DEFAULT_ACCEPT_LANGUAGE) -> requests.Sess
     return s
 
 
-def _ml_search_url(species_code: str) -> str:
+def ml_search_url(species_code: str) -> str:
     return (
         f"{ML_SEARCH_BASE}/catalog"
         f"?taxonCode={species_code}&mediaType=photo&sort=rating_rank_desc"
@@ -91,17 +91,29 @@ def _attribution(photographer: str) -> str:
     return "Macaulay Library"
 
 
+MACAULAY_LOOKAHEAD = 5
+
+
 def _try_macaulay_api(
-    species_code: str, session: requests.Session
+    species_code: str,
+    session: requests.Session,
+    *,
+    count: int = 1,
+    skip: frozenset[str] = frozenset(),
 ) -> ImageResult | None:
     """Strategy 1: Macaulay Library Search internal JSON API.
 
     Confirmed shape: ``{"results": {"count": N, "content": [...], "nextCursorMark": ...}}``.
     Each item has ``assetId``, ``catalogId``, ``userDisplayName``, ``rating``, etc.
+
+    ``skip`` holds the assets this species has already been published
+    with, so a republication can walk down the rating order until it finds
+    a photograph the reader has not seen.
     """
     url = (
         f"{ML_SEARCH_BASE}/api/v1/search"
-        f"?taxonCode={species_code}&mediaType=photo&sort=rating_rank_desc&count=1"
+        f"?taxonCode={species_code}&mediaType=photo&sort=rating_rank_desc"
+        f"&count={count}"
     )
     try:
         resp = session.get(url, timeout=REQUEST_TIMEOUT)
@@ -114,25 +126,36 @@ def _try_macaulay_api(
     if not isinstance(data, dict):
         return None
     content = data.get("results", {}).get("content", []) or []
-    if not content:
-        return None
 
-    first = content[0]
-    asset_id = str(first.get("assetId") or first.get("catalogId") or "").strip()
-    if not asset_id:
-        return None
-
-    photographer = (first.get("userDisplayName") or "").strip()
-    return ImageResult(
-        url=_cdn_url(asset_id),
-        asset_id=asset_id,
-        photographer=photographer,
-        attribution=_attribution(photographer),
-        search_url=_ml_search_url(species_code),
-    )
+    for item in content:
+        asset_id = str(item.get("assetId") or item.get("catalogId") or "").strip()
+        if not asset_id or asset_id in skip:
+            continue
+        photographer = (item.get("userDisplayName") or "").strip()
+        return ImageResult(
+            url=_cdn_url(asset_id),
+            asset_id=asset_id,
+            photographer=photographer,
+            attribution=_attribution(photographer),
+            search_url=ml_search_url(species_code),
+        )
+    return None
 
 
 _OG_ASSET_RE = re.compile(r"/asset/(\d+)")
+
+
+def asset_id_from_url(url: str | None) -> str | None:
+    """The Macaulay asset id embedded in a photo URL, if there is one.
+
+    History records the URL a plate was published with, which makes it the
+    only record of which photographs a reader has already been shown for a
+    given species.
+    """
+    if not url:
+        return None
+    match = _OG_ASSET_RE.search(url)
+    return match.group(1) if match else None
 
 
 def _try_ebird_og_image(
@@ -170,7 +193,7 @@ def _try_ebird_og_image(
             asset_id=None,
             photographer="",
             attribution="Macaulay Library / Cornell Lab of Ornithology",
-            search_url=_ml_search_url(species_code),
+            search_url=ml_search_url(species_code),
         )
 
     asset_id = match.group(1)
@@ -186,7 +209,7 @@ def _try_ebird_og_image(
         asset_id=asset_id,
         photographer=photographer,
         attribution=_attribution(photographer),
-        search_url=_ml_search_url(species_code),
+        search_url=ml_search_url(species_code),
     )
 
 
@@ -196,7 +219,7 @@ def _fallback(species_code: str) -> ImageResult:
         asset_id=None,
         photographer="",
         attribution="Macaulay Library / Cornell Lab of Ornithology",
-        search_url=_ml_search_url(species_code),
+        search_url=ml_search_url(species_code),
     )
 
 
@@ -204,6 +227,9 @@ def fetch_image(
     species_code: str,
     session: requests.Session | None = None,
     locale: str = "en",
+    *,
+    ordinal: int = 0,
+    seen_asset_ids: frozenset[str] = frozenset(),
 ) -> ImageResult:
     """Fetch the species image, prioritising eBird's curated hero.
 
@@ -229,8 +255,23 @@ def fetch_image(
     ``locale`` is forwarded to the eBird species-page strategy. The
     Macaulay API strategy doesn't take a locale (asset metadata is
     language-agnostic).
+
+    ``ordinal`` is how many times this species has been published before.
+    On a republication the curated eBird hero is skipped: it is a single
+    fixed photograph, and showing it twice is exactly what the ordinal
+    exists to avoid. The rated Macaulay list is walked instead, past every
+    asset in ``seen_asset_ids``. If the library has nothing new the normal
+    order runs anyway: repeating a photograph beats publishing without one.
     """
     sess = session or new_session()
+    if ordinal:
+        result = _try_macaulay_api(
+            species_code, sess,
+            count=ordinal + MACAULAY_LOOKAHEAD,
+            skip=seen_asset_ids,
+        )
+        if result is not None:
+            return result
     result = _try_ebird_og_image(species_code, sess, locale=locale)
     if result is not None:
         return result
@@ -240,16 +281,26 @@ def fetch_image(
     return _fallback(species_code)
 
 
-def _image_cache_path(species_code: str, cache_dir: str) -> Path:
-    return Path(cache_dir) / f"{species_code}.image.json"
+def _image_cache_path(
+    species_code: str, cache_dir: str, ordinal: int = 0
+) -> Path:
+    """Cache file for one publication's photograph.
+
+    A debut keeps the historical name so the caches already on disk stay
+    valid; later publications are numbered, so a repeat's photograph never
+    overwrites the original's.
+    """
+    suffix = f"-{ordinal + 1}" if ordinal else ""
+    return Path(cache_dir) / f"{species_code}.image{suffix}.json"
 
 
 def load_cached_image(
-    species_code: str, cache_dir: str = "cache"
+    species_code: str, cache_dir: str = "cache", ordinal: int = 0
 ) -> ImageResult | None:
     from scripts import load_json_cache
     data = load_json_cache(
-        _image_cache_path(species_code, cache_dir), f"image cache for {species_code}"
+        _image_cache_path(species_code, cache_dir, ordinal),
+        f"image cache for {species_code}",
     )
     if data is None:
         return None
@@ -259,12 +310,15 @@ def load_cached_image(
 
 
 def save_cached_image(
-    species_code: str, result: ImageResult, cache_dir: str = "cache"
+    species_code: str,
+    result: ImageResult,
+    cache_dir: str = "cache",
+    ordinal: int = 0,
 ) -> None:
     """Persist a successful image lookup. Failures are not cached so they retry."""
     if not result.asset_id and not result.url:
         return
-    path = _image_cache_path(species_code, cache_dir)
+    path = _image_cache_path(species_code, cache_dir, ordinal)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
