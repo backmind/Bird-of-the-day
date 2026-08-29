@@ -100,3 +100,39 @@ def test_empty_history_still_carries_the_legacy_shim(ctx):
     html = archive_builder.build_archive_front([], ctx)
     assert "location.replace('archive-'" in html
     assert "/^#bird-" in html
+
+
+def _head_of(html: str) -> str:
+    return html.split("</head>", 1)[0]
+
+
+def test_the_shim_runs_before_first_paint(ctx, entries):
+    # From the body it would let the reader watch the whole archive front
+    # render before jumping away from it. The theme-boot script is in the
+    # head for the same reason.
+    html = archive_builder.build_archive_front(entries, ctx)
+    assert archive_builder._legacy_anchor_shim() in _head_of(html)
+
+
+def test_the_empty_page_puts_the_shim_in_the_head_too(ctx):
+    html = archive_builder.build_archive_front([], ctx)
+    assert archive_builder._legacy_anchor_shim() in _head_of(html)
+
+
+def test_moving_the_shim_did_not_change_its_script(ctx, entries):
+    # Byte-for-byte the same program, only earlier: readers holding a
+    # legacy link depend on this exact redirect.
+    assert archive_builder._legacy_anchor_shim() == (
+        "<script>(function(){"
+        r"var m=/^#bird-[a-z0-9]+-(\d{4}-\d{2})-\d{2}$/.exec(location.hash);"
+        "if(m){location.replace('archive-'+m[1]+'.html'+location.hash);}"
+        "})();</script>"
+    )
+
+
+def test_a_page_without_head_extra_keeps_its_bytes(ctx, entries):
+    # The optional head slot must contribute nothing at all when unused,
+    # or every page in the site rewrites on the next run.
+    bucket = archive_builder.build_month_bucket("2026-08", entries[:2], ctx)
+    assert "\n  \n" not in bucket
+    assert bucket.count("<script>") == 1

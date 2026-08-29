@@ -104,6 +104,10 @@ def _legacy_anchor_shim() -> str:
     two format literals are derived from :mod:`scripts.urls` rather than
     copied, so a change to the URL scheme cannot silently orphan links
     that readers already hold.
+
+    Goes in ``<head>``: it only reads ``location.hash``, so it needs no
+    DOM, and from the body it would let the reader watch the whole
+    archive front paint before jumping away from it.
     """
     sentinel = "0000-00"
     head, _, tail = urls.bucket_filename_for_month(sentinel).partition(sentinel)
@@ -156,9 +160,11 @@ def build_archive_front(entries: list[SiteEntry], ctx: RenderContext) -> str:
         body = (
             f'<p>{_esc(t("archive.empty"))}</p>\n'
             + site_builder.render_subscribe(ctx)
-            + _legacy_anchor_shim()
         )
-        return site_builder.render_page(title, body, ctx, active="archive")
+        return site_builder.render_page(
+            title, body, ctx, active="archive",
+            head_extra=_legacy_anchor_shim(),
+        )
 
     months = group_by_month(entries)
     current_month, current_entries = months[0]
@@ -175,10 +181,10 @@ def build_archive_front(entries: list[SiteEntry], ctx: RenderContext) -> str:
         f"{_esc(month_label(ctx, current_month))}</span></div>",
         f'<div class="grid">\n{cards}\n</div>',
         _month_index(months, ctx),
-        _legacy_anchor_shim(),
     ]
     return site_builder.render_page(
-        title, "\n".join(body_parts), ctx, active="archive"
+        title, "\n".join(body_parts), ctx, active="archive",
+        head_extra=_legacy_anchor_shim(),
     )
 
 

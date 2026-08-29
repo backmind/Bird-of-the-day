@@ -1,3 +1,5 @@
+import pytest
+
 from scripts.atomic_io import write_text_if_changed
 
 
@@ -26,6 +28,21 @@ def test_no_temporary_files_are_left_behind(tmp_path):
     target = tmp_path / "page.html"
     write_text_if_changed(target, "hello")
     assert [p.name for p in tmp_path.iterdir()] == ["page.html"]
+
+
+def test_a_failed_write_leaves_no_temporary_file(tmp_path):
+    # The reason the write is wrapped at all: it lands on a temporary file
+    # next to the target, and a raise between mkstemp and os.replace would
+    # otherwise litter the publishing repository with .tmp files that the
+    # next run cannot tell from real pages. The failure is provoked at the
+    # encoder rather than by patching, so the real cleanup path runs.
+    target = tmp_path / "page.html"
+    write_text_if_changed(target, "hello")
+    with pytest.raises(UnicodeEncodeError):
+        write_text_if_changed(target, "señal", encoding="ascii")
+    assert [p.name for p in tmp_path.iterdir()] == ["page.html"]
+    # And the file that was already published is still intact.
+    assert target.read_text(encoding="utf-8") == "hello"
 
 
 def test_newlines_are_written_verbatim(tmp_path):

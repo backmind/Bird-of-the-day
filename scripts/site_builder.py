@@ -18,7 +18,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from scripts import esc_html as _esc, name_linker, site_css, urls
+from scripts import esc_html as _esc, name_linker, urls
 
 if TYPE_CHECKING:
     from scripts.i18n import Catalog
@@ -36,6 +36,9 @@ class RenderContext:
     :mod:`scripts.archive_builder` page builders) and threaded through
     every ``_render_*`` helper. Holds the i18n catalog plus the small
     handful of page-level scalars the helpers need.
+
+    ``feed_link`` is carried for absolute-URL generation (canonical links,
+    Open Graph tags) and is deliberately not read by any renderer yet.
     """
 
     catalog: "Catalog"
@@ -145,10 +148,10 @@ def _render_header(ctx: RenderContext, active: str) -> str:
 """.strip()
 
 
-def render_subscribe(ctx: RenderContext, feed_url: str = "") -> str:
+def render_subscribe(ctx: RenderContext) -> str:
     """Refined RSS footnote — not a marketing banner."""
     t = ctx.catalog.t
-    target = feed_url or ctx.u(urls.FEED_FILE)
+    target = ctx.u(urls.FEED_FILE)
     return f"""
 <aside class="subscribe" aria-label="{_esc(t("subscribe.aria_label"))}">
   <div class="icon" aria-hidden="true">
@@ -490,10 +493,19 @@ _THEME_BOOT_SCRIPT = (
 
 
 def render_page(
-    title: str, body: str, ctx: RenderContext, active: str
+    title: str, body: str, ctx: RenderContext, active: str, head_extra: str = ""
 ) -> str:
+    """Render a full page.
+
+    ``head_extra`` is raw markup appended to ``<head>``, for the rare
+    thing that has to run before first paint rather than in document
+    order; it is emitted right after the theme-boot script, which is
+    there for the same reason. Empty by default, and it contributes no
+    whitespace when empty so a page without it keeps its exact bytes.
+    """
     t = ctx.catalog.t
     stylesheet_href = _esc(ctx.u(urls.STYLESHEET))
+    head_block = f"\n  {head_extra}" if head_extra else ""
     return f"""<!DOCTYPE html>
 <html lang="{_esc(ctx.catalog.html_lang)}">
 <head>
@@ -505,7 +517,7 @@ def render_page(
   <meta name="theme-color" content="#0F1518" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="{_FAVICON_SVG}">
   <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="{_esc(ctx.u(urls.FEED_FILE))}">
-  {_THEME_BOOT_SCRIPT}
+  {_THEME_BOOT_SCRIPT}{head_block}
   <link rel="stylesheet" href="{stylesheet_href}">
 </head>
 <body>

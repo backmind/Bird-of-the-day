@@ -25,11 +25,11 @@ def test_substitutes_english_name():
 def test_links_to_published_entry():
     eni = {"Masked Booby": "masboo"}
     c2l = {"masboo": "Piquero Enmascarado"}
-    anchors = {"masboo": "archive.html#bird-masboo-2026-04-13"}
+    anchors = {"masboo": "birds/masboo.html"}
     result = process_description(
         "The Masked Booby is a seabird.", eni, c2l, anchors
     )
-    assert '<a href="archive.html#bird-masboo-2026-04-13">' in result
+    assert '<a href="birds/masboo.html">' in result
     assert "Piquero Enmascarado" in result
     assert "(eBird)" not in result
 
@@ -55,11 +55,11 @@ def test_html_in_description_escaped():
 def test_localized_name_linked():
     """Localized names in the text get linked even without English match."""
     c2l = {"masboo": "Piquero Enmascarado"}
-    anchors = {"masboo": "archive.html#bird-masboo-2026-04-13"}
+    anchors = {"masboo": "birds/masboo.html"}
     result = process_description(
         "El Piquero Enmascarado anida en islas.", {}, c2l, anchors
     )
-    assert '<a href="archive.html#bird-masboo-2026-04-13">' in result
+    assert '<a href="birds/masboo.html">' in result
     assert "Piquero Enmascarado" in result
 
 
