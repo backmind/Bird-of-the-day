@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import random
 import sys
@@ -23,6 +24,15 @@ _session = build_session()
 BASE_URL = "https://api.ebird.org/v2"
 REQUEST_TIMEOUT = 30
 TAXONOMY_TTL_DAYS = 30
+
+MAX_POOL_SPECIES = 1000
+"""Species a pool may offer in a day.
+
+The endpoint returns one record per species, so this is a species count,
+not an observation count. It used to be 200, which is fewer species than
+Spain reports in a fortnight: the dedup window was on course to outgrow
+the supply and turn every regional day into a recycled one.
+"""
 
 # Module-level cache; populated lazily from disk or the network.
 _taxonomy_cache: list[dict] | None = None
@@ -56,7 +66,7 @@ def get_recent_observations(
         "cat": "species",
         "hotspot": "false",
         "includeProvisional": "false",
-        "maxResults": 200,
+        "maxResults": MAX_POOL_SPECIES,
         "locale": locale,
     }
     try:
@@ -261,6 +271,100 @@ def _date_seed(date_str: str, salt: str = "") -> int:
     return int(hashlib.sha256((date_str + salt).encode()).hexdigest(), 16)
 
 
+WINDOW_SUPPLY_FRACTION = 0.75
+VALVE_QUARTILE = 4
+
+
+def _note(notes: list[str] | None, message: str) -> None:
+    """Log a selection diagnostic and, when asked, hand it to the caller.
+
+    The daily run turns these into report lines: the roadmap's rule is
+    that degradation is visible, and a pool running out of unpublished
+    species is exactly the kind of thing that used to happen in silence.
+    """
+    logger.info(message)
+    if notes is not None:
+        notes.append(message)
+
+
+def _recency_order(published_codes: list[str]) -> list[str]:
+    """Distinct species, most recently published first.
+
+    ``published_codes`` arrives oldest first, repeats included, exactly as
+    history stores it. Walking it backwards and keeping each code's first
+    sighting gives the one ordering both the dedup window and the
+    recycling valve need. A species never published is absent from the
+    result: it is infinitely old, so it is always eligible and always
+    ahead of anything that has been published.
+    """
+    seen: set[str] = set()
+    order: list[str] = []
+    for code in reversed(published_codes):
+        if code and code not in seen:
+            seen.add(code)
+            order.append(code)
+    return order
+
+
+def scaled_window(config: dict, history_len: int) -> int:
+    """Dedup window that grows with the archive.
+
+    Measured in entries rather than distinct species on purpose: counting
+    distinct species would feed back on itself, because more repeats would
+    slow the window's growth and cause more repeats.
+    """
+    floor = int(config.get("dedup_window", config.get("max_history", 50)))
+    return max(floor, history_len // 2)
+
+
+def _effective_window(window: int, supply: int) -> int:
+    """The window a pool can actually afford today.
+
+    The window scales with the archive, so on a long enough history it
+    would name every species a pool is able to produce and leave the day
+    with nothing to publish. Never blocking more than
+    ``WINDOW_SUPPLY_FRACTION`` of today's supply keeps a quarter of the
+    pool eligible no matter how long the archive gets.
+    """
+    return max(min(window, int(supply * WINDOW_SUPPLY_FRACTION)), 0)
+
+
+def _rarity_score(total_count: int) -> float:
+    """Selection weight: rarer species score higher, but not wildly.
+
+    Inverse square root rather than plain inverse. The candidate list runs
+    to a thousand species, most of them reported once, and a linear
+    inverse would let those single sightings swallow the draw.
+    """
+    return 1.0 / math.sqrt(max(total_count, 1))
+
+
+def _weighted_pick(candidates: list[dict], date_str: str, salt: str) -> dict:
+    """The rarity-weighted, date-seeded draw shared by every path."""
+    scores = [_rarity_score(c.get("total_count", 1)) for c in candidates]
+    rng = random.Random(_date_seed(date_str, salt=salt))
+    return rng.choices(candidates, weights=scores, k=1)[0]
+
+
+def _recycle_pool(candidates: list[dict], recency: list[str]) -> list[dict]:
+    """The least recently published quarter of the candidates.
+
+    A strict "oldest first" rule would turn an exhausted pool into a
+    carousel: today's pick becomes the most recent, tomorrow's is the next
+    one in the queue, and the order never changes again. Handing a whole
+    quartile to the usual weighted draw keeps "what has been away longest
+    comes back" without fixing the order.
+    """
+    rank = {code: i for i, code in enumerate(recency)}
+    unpublished = len(recency)
+    ordered = sorted(
+        candidates,
+        key=lambda c: (-rank.get(c["speciesCode"], unpublished), c["speciesCode"]),
+    )
+    size = max(1, -(-len(ordered) // VALVE_QUARTILE))
+    return ordered[:size]
+
+
 def _pick_pool(pools: list[dict], date_str: str) -> dict:
     seed = _date_seed(date_str)
     rng = random.Random(seed)
@@ -281,15 +385,23 @@ def _get_region_for_pool(pool: dict, date_str: str) -> str | None:
 
 def _select_from_observations(
     observations: list[dict],
-    history_codes: set[str],
+    recency: list[str],
+    window: int,
     date_str: str,
     pool_id: str,
+    exclude: frozenset[str] = frozenset(),
+    notes: list[str] | None = None,
 ) -> dict | None:
-    """Aggregate observations by species and pick one with rarity bias."""
+    """Aggregate observations by species and pick one with rarity bias.
+
+    The window is applied here, not by the caller, because clamping it
+    needs to know how many species this pool actually offers today, and
+    that is only known once the region has answered.
+    """
     species_map: dict[str, dict] = {}
     for obs in observations:
         code = obs.get("speciesCode")
-        if not code or code in history_codes:
+        if not code or code in exclude:
             continue
         if code not in species_map:
             species_map[code] = {
@@ -303,12 +415,36 @@ def _select_from_observations(
     if not species_map:
         return None
 
-    candidates = list(species_map.values())
-    # Inverse-howMany rarity bias: rarer species get higher weight.
-    scores = [1.0 / c["total_count"] for c in candidates]
-    seed = _date_seed(date_str, salt=pool_id)
-    rng = random.Random(seed)
-    selected = rng.choices(candidates, weights=scores, k=1)[0]
+    supply = len(species_map)
+    effective = _effective_window(window, supply)
+    if effective < window:
+        _note(
+            notes,
+            f"dedup window clamped from {window} to {effective}: "
+            f"pool {pool_id} offers {supply} species today",
+        )
+
+    # The clamp above guarantees a candidate survives whenever it actually
+    # bites (WINDOW_SUPPLY_FRACTION and VALVE_QUARTILE are complementary
+    # fractions on purpose), so "no candidates left after the clamp" can
+    # never happen. What decides whether this pool is actually exhausted
+    # is the unclamped window: if the raw dedup window would have blocked
+    # every species this pool offers today, recycle its oldest quarter
+    # instead of drawing from the clamp's leftover in silence.
+    raw_blocked = set(recency[:window])
+    exhausted = all(code in raw_blocked for code in species_map)
+    if exhausted:
+        candidates = _recycle_pool(list(species_map.values()), recency)
+        _note(
+            notes,
+            f"pool {pool_id} has no unpublished species left; "
+            f"recycling among its {len(candidates)} least recently published",
+        )
+    else:
+        blocked = set(recency[:effective])
+        candidates = [c for c in species_map.values() if c["speciesCode"] not in blocked]
+
+    selected = _weighted_pick(candidates, date_str, pool_id)
     return {
         "speciesCode": selected["speciesCode"],
         "comName": selected["comName"],
@@ -317,20 +453,49 @@ def _select_from_observations(
 
 
 def _select_from_taxonomy(
-    taxonomy: list[dict], history_codes: set[str], date_str: str
+    taxonomy: list[dict],
+    recency: list[str],
+    window: int,
+    date_str: str,
+    exclude: frozenset[str] = frozenset(),
+    notes: list[str] | None = None,
 ) -> dict | None:
-    filtered = [
-        sp for sp in taxonomy if sp.get("speciesCode") and sp["speciesCode"] not in history_codes
+    """Pick from the world list under the same window and valve rules.
+
+    Every species weighs the same here: the world list carries no counts,
+    so there is no rarity to bias towards. With eleven thousand species
+    the clamp never binds and the valve never fires, but both stay wired
+    so this pool cannot quietly develop rules of its own.
+    """
+    candidates = [
+        {
+            "speciesCode": sp["speciesCode"],
+            "comName": sp.get("comName", sp["speciesCode"]),
+            "sciName": sp.get("sciName", ""),
+            "total_count": 1,
+        }
+        for sp in taxonomy
+        if sp.get("speciesCode") and sp["speciesCode"] not in exclude
     ]
-    if not filtered:
-        filtered = taxonomy
-    seed = _date_seed(date_str, salt="global")
-    rng = random.Random(seed)
-    sp = rng.choice(filtered)
+    if not candidates:
+        return None
+
+    effective = _effective_window(window, len(candidates))
+    blocked = set(recency[:effective])
+    eligible = [c for c in candidates if c["speciesCode"] not in blocked]
+    if not eligible:
+        eligible = _recycle_pool(candidates, recency)
+        _note(
+            notes,
+            f"the world list has no unpublished species left; "
+            f"recycling among its {len(eligible)} least recently published",
+        )
+
+    selected = _weighted_pick(eligible, date_str, "global")
     return {
-        "speciesCode": sp["speciesCode"],
-        "comName": sp.get("comName", sp["speciesCode"]),
-        "sciName": sp.get("sciName", ""),
+        "speciesCode": selected["speciesCode"],
+        "comName": selected["comName"],
+        "sciName": selected["sciName"],
     }
 
 
@@ -356,11 +521,14 @@ def _enrich_with_taxonomy(species: dict) -> dict:
 
 def _select_from_pool(
     pool: dict,
-    history_codes: set[str],
+    recency: list[str],
+    window: int,
     date_str: str,
     back: int,
     locale: str,
     cache_dir: Path | None,
+    exclude: frozenset[str] = frozenset(),
+    notes: list[str] | None = None,
 ) -> dict | None:
     pool_type = pool["type"]
     if pool_type in ("regional", "europe_random"):
@@ -370,7 +538,10 @@ def _select_from_pool(
         if not observations:
             logger.warning("No observations returned for region %s", region)
             return None
-        return _select_from_observations(observations, history_codes, date_str, pool["id"])
+        return _select_from_observations(
+            observations, recency, window, date_str, pool["id"],
+            exclude=exclude, notes=notes,
+        )
 
     if pool_type == "global_taxonomy":
         logger.info("Pool %s → global taxonomy", pool["id"])
@@ -379,7 +550,9 @@ def _select_from_pool(
         except requests.RequestException:
             logger.exception("Failed to fetch global taxonomy")
             return None
-        return _select_from_taxonomy(taxonomy, history_codes, date_str)
+        return _select_from_taxonomy(
+            taxonomy, recency, window, date_str, exclude=exclude, notes=notes,
+        )
 
     logger.warning("Unknown pool type: %s", pool_type)
     return None
@@ -387,21 +560,33 @@ def _select_from_pool(
 
 def select_species(
     config: dict,
-    history_codes: list[str],
+    published_codes: list[str],
     date_str: str,
     cache_dir: Path | None = None,
+    exclude: frozenset[str] = frozenset(),
+    notes: list[str] | None = None,
 ) -> dict:
     """Select the bird of the day.
 
-    Picks one weighted pool by date hash, queries it, and dedupes against
-    history. If that single attempt yields nothing (network error, empty
-    region, or every candidate already used), falls back **once** to the
-    global taxonomy pool — never an exhaustive cascade per plan §3.4.
+    ``published_codes`` is the whole publication history as species codes,
+    oldest first, repeats included. Everything the selection needs is
+    derived from it: which species the dedup window blocks, and how long
+    each has been away when the pool runs out and one has to come back.
+
+    ``exclude`` is rejected outright, before the window and the valve. It
+    carries the codes a skip-policy re-roll has already tried today.
+
+    Picks one weighted pool by date hash and queries it. The pool now
+    recycles its own least recently published species rather than come up
+    empty, so the single global-taxonomy rescue below is left for the
+    cases it was really meant for: a network error, or a region that
+    answered with nothing at all.
     """
     pools = config["pools"]
     back = config.get("back_days", 14)
     locale = config.get("ebird_locale", "es")
-    history_set = set(history_codes)
+    recency = _recency_order(published_codes)
+    window = scaled_window(config, len(published_codes))
 
     # Load taxonomy upfront so we can enrich the final pick regardless of pool.
     try:
@@ -413,7 +598,8 @@ def select_species(
     logger.info("Selected pool: %s (weight=%s)", chosen_pool["id"], chosen_pool["weight"])
 
     result = _select_from_pool(
-        chosen_pool, history_set, date_str, back, locale, cache_dir
+        chosen_pool, recency, window, date_str, back, locale, cache_dir,
+        exclude=exclude, notes=notes,
     )
     if result:
         return _enrich_with_taxonomy(result)
@@ -430,7 +616,8 @@ def select_species(
         rescue_pool = {"id": "rescue", "type": "global_taxonomy"}
 
     result = _select_from_pool(
-        rescue_pool, history_set, date_str, back, locale, cache_dir
+        rescue_pool, recency, window, date_str, back, locale, cache_dir,
+        exclude=exclude, notes=notes,
     )
     if result:
         return _enrich_with_taxonomy(result)
