@@ -44,9 +44,9 @@
 
   "llm": {
     "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "model": "gemini-flash-latest",
-    "temperature": 0,
-    "max_retries": 2
+    "models": ["gemini-2.5-flash"],
+    "temperature": 0.6,
+    "judge": false
   },
-  "_llm_help": "OpenAI-compatible chat completions endpoint. API key via BOTD_LLM_API_KEY env var."
+  "_llm_help": "OpenAI-compatible chat completions endpoint. 'models' are tried in order until one succeeds; pin concrete model names, not -latest aliases. API key via BOTD_LLM_API_KEY env var. 'judge' enables an optional second-pass fact-check."
 }

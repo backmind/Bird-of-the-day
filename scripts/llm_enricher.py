@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -26,8 +27,6 @@ if TYPE_CHECKING:
     from scripts.i18n import Catalog
 
 logger = logging.getLogger(__name__)
-
-REQUEST_TIMEOUT = 30
 
 # Upper bound on scraped context sent to the LLM (chars, all sources
 # combined). Keeps token costs predictable (~1500 input tokens).
@@ -187,26 +186,56 @@ def _build_messages(
     ]
 
 
-def _call_llm(
-    messages: list[dict], config: dict
-) -> dict | None:
+# LLM calls get a long timeout and their own retry loop: outages at cron
+# time (503 bursts, slow completions) need minutes of patience, not the
+# seconds appropriate for scraping GETs.
+LLM_TIMEOUT = 90
+_BACKOFF_SCHEDULE = (2, 8, 30)
+_RETRY_AFTER_CAP = 120
+
+
+def _parse_retry_after(value: str | None) -> int:
+    if not value:
+        return 0
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return 0
+
+
+def _parse_llm_content(text: str) -> dict | None:
+    """Parse the completion body as JSON, tolerating markdown fences."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1]
+    if text.endswith("```"):
+        text = text.rsplit("```", 1)[0]
+    try:
+        parsed = json.loads(text.strip())
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _call_llm(messages: list[dict], config: dict) -> dict | None:
     """POST to an OpenAI-compatible chat completions endpoint.
 
-    Returns the parsed JSON content on success, ``None`` on failure.
-    Retries with exponential backoff.
+    Tries each model in the configured chain; per model, retries with
+    exponential backoff (honoring Retry-After on 429/503). Returns the
+    parsed JSON dict on success, ``None`` when every model is exhausted.
     """
     llm_cfg = config.get("llm", {})
     endpoint = llm_cfg.get("endpoint", "")
-    model = llm_cfg.get("model", "")
-    temperature = llm_cfg.get("temperature", 0)
-    max_retries = llm_cfg.get("max_retries", 2)
+    models = _resolve_models(config)
+    temperature = llm_cfg.get("temperature", 0.6)
+    max_retries = int(llm_cfg.get("max_retries", 3))
 
     api_key = os.environ.get("BOTD_LLM_API_KEY", "")
     if not api_key:
         logger.warning("BOTD_LLM_API_KEY not set; skipping LLM enrichment")
         return None
-    if not endpoint or not model:
-        logger.warning("LLM endpoint/model not configured; skipping")
+    if not endpoint or not models:
+        logger.warning("LLM endpoint/models not configured; skipping")
         return None
 
     url = f"{endpoint.rstrip('/')}/chat/completions"
@@ -214,41 +243,49 @@ def _call_llm(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
-    payload = {
-        "model": model,
-        "temperature": temperature,
-        "messages": messages,
-    }
 
-    for attempt in range(max_retries + 1):
-        try:
-            resp = requests.post(
-                url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            text = data["choices"][0]["message"]["content"]
-            # Strip markdown fences if the model wraps them anyway.
-            text = text.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[-1]
-            if text.endswith("```"):
-                text = text.rsplit("```", 1)[0]
-            text = text.strip()
-            return json.loads(text)
-        except (requests.RequestException, KeyError, json.JSONDecodeError) as exc:
-            if attempt < max_retries:
-                wait = 2 ** attempt
-                logger.warning(
-                    "LLM call attempt %d failed (%s), retrying in %ds",
-                    attempt + 1, exc, wait,
+    for model in models:
+        payload = {
+            "model": model,
+            "temperature": temperature,
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+        }
+        for attempt in range(max_retries + 1):
+            wait = _BACKOFF_SCHEDULE[min(attempt, len(_BACKOFF_SCHEDULE) - 1)]
+            try:
+                resp = requests.post(
+                    url, headers=headers, json=payload, timeout=LLM_TIMEOUT
                 )
-                time.sleep(wait)
-            else:
-                logger.error(
-                    "LLM call failed after %d attempts: %s",
-                    max_retries + 1, exc,
-                )
+                if resp.status_code in (429, 503):
+                    retry_after = _parse_retry_after(
+                        resp.headers.get("Retry-After")
+                    )
+                    if retry_after:
+                        wait = min(max(wait, retry_after), _RETRY_AFTER_CAP)
+                    raise requests.HTTPError(
+                        f"{resp.status_code} from LLM endpoint"
+                    )
+                resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                parsed = _parse_llm_content(content)
+                if parsed is None:
+                    raise ValueError("unparseable JSON in completion")
+                return parsed
+            except (requests.RequestException, KeyError, ValueError) as exc:
+                if attempt < max_retries:
+                    sleep_for = wait + random.uniform(0, 1)
+                    logger.warning(
+                        "LLM %s attempt %d failed (%s), retrying in %.1fs",
+                        model, attempt + 1, exc, sleep_for,
+                    )
+                    time.sleep(sleep_for)
+                else:
+                    logger.error(
+                        "LLM model %s failed after %d attempts: %s",
+                        model, max_retries + 1, exc,
+                    )
     return None
 
 
