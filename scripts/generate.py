@@ -686,11 +686,11 @@ def main() -> None:
 
     description_policy = config.get("description_policy", "foreign_fallback")
     feed_link = config.get("feed_link", "")
-    # Whether feed-full.xml is published this run. Same expression
-    # write_feeds uses to decide whether to write it: without a cap the
-    # full feed would duplicate feed.xml byte for byte, so it is not
-    # written, and the pages must not link a file that does not exist.
-    full_feed = int(config.get("max_feed_entries", 0) or 0) > 0
+    # Whether feed-full.xml is published this run, derived from the one
+    # expression write_feeds itself uses: without a cap the full feed
+    # would duplicate feed.xml byte for byte, so it is not written, and
+    # the pages must not link a file that does not exist.
+    full_feed = feed_builder.feed_cap(config) > 0
 
     try:
         # Maintenance first: heal past entries (missed enrichments,

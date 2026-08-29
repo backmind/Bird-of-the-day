@@ -6,6 +6,7 @@ from scripts import urls
 from scripts.feed_builder import (
     FEED_FORMAT,
     FeedEntry,
+    feed_cap,
     load_existing_feed,
     load_feed_format,
     write_feed,
@@ -79,6 +80,37 @@ class TestFeedFiles:
         assert result["items"] == 10
         assert result["full_written"] is False
         assert not (tmp_path / urls.FEED_FULL_FILE).exists()
+
+
+class TestFeedCap:
+    """One expression, because three callers have to agree on it.
+
+    The pages link ``feed-full.xml`` on the strength of this number being
+    above zero and ``write_feeds`` decides whether to write the file on
+    the same one. A second copy that drifts publishes a link to nothing.
+    """
+
+    def test_a_missing_key_is_no_cap(self):
+        assert feed_cap({}) == 0
+
+    def test_a_null_is_no_cap(self):
+        assert feed_cap({"max_feed_entries": None}) == 0
+
+    def test_a_hand_edited_string_still_reads_as_a_number(self):
+        assert feed_cap({"max_feed_entries": "30"}) == 30
+
+    def test_the_full_feed_is_written_exactly_when_the_cap_is_positive(
+        self, tmp_path
+    ):
+        for cap in (0, 3):
+            target = tmp_path / str(cap)
+            target.mkdir()
+            result = write_feeds(
+                _entries(10), _config(cap), Catalog.load("es"), target
+            )
+            expected = feed_cap(_config(cap)) > 0
+            assert result["full_written"] is expected
+            assert (target / urls.FEED_FULL_FILE).exists() is expected
 
 
 class TestStaleFullFeed:

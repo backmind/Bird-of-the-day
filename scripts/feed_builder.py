@@ -333,6 +333,20 @@ def build_feed(
     return xml_string
 
 
+def feed_cap(config: dict) -> int:
+    """How many items ``feed.xml`` carries. Zero means no cap.
+
+    ``feed-full.xml`` exists if and only if this is above zero: without a
+    cap ``feed.xml`` already holds the whole history and a second file
+    would duplicate it byte for byte. Three callers have to agree on that
+    (this module writes the files, the generator tells the site builder
+    whether the pages may link the second one, and seed_mock reproduces
+    both for a demo), and they agree by reading it here. The moment they
+    stop agreeing, the pages advertise a file nothing writes.
+    """
+    return int(config.get("max_feed_entries", 0) or 0)
+
+
 def write_feeds(
     entries: list[FeedEntry],
     config: dict,
@@ -375,7 +389,7 @@ def write_feeds(
     """
     feed_path = state_dir / urls.FEED_FILE
     full_path = state_dir / urls.FEED_FULL_FILE
-    cap = int(config.get("max_feed_entries", 0) or 0)
+    cap = feed_cap(config)
 
     capped = entries[:cap] if cap > 0 else entries
     result = {
