@@ -53,6 +53,10 @@
   "page.archive_title_template": "Arquivo — Ave do Dia",
   "page.bucket_title_template": "{month} · Arquivo · Ave do Dia",
   "page.species_title_template": "{name} · Ficha · Ave do Dia",
+  "page.home_description_template": "A ave em destaque hoje: {name}.",
+  "page.archive_description_template": "Explore o arquivo completo: {count} aves publicadas até agora.",
+  "page.bucket_description_template": "Aves publicadas em {month}.",
+  "page.species_description_template": "{name}, destaque no Ave do Dia: fotos, notas de identificação e mapa de distribuição.",
 
   "description.foreign_disclaimer": "Descrição em {source_language} (tradução em português indisponível).",
   "description.empty_marker": "—",

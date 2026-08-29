@@ -37,8 +37,11 @@ class RenderContext:
     every ``_render_*`` helper. Holds the i18n catalog plus the small
     handful of page-level scalars the helpers need.
 
-    ``feed_link`` is carried for absolute-URL generation (canonical links,
-    Open Graph tags) and is deliberately not read by any renderer yet.
+    ``feed_link`` is the absolute base URL used to build the Open Graph
+    ``og:url``/``og:image`` tags in :func:`render_page`. It may be empty
+    (an instance that has not configured one yet), in which case
+    ``render_page`` omits every ``og:`` tag rather than emit a relative
+    ``og:url`` that no client consuming the tag could resolve.
 
     ``full_feed`` says whether ``feed-full.xml`` is actually published.
     It only is when a cap applies (see :func:`feed_builder.write_feeds`),
@@ -559,8 +562,38 @@ _THEME_BOOT_SCRIPT = (
 )
 
 
+@dataclass(frozen=True)
+class OpenGraph:
+    """Open Graph data for one page, consumed by :func:`render_page`.
+
+    ``path`` is the page's own canonical path, root-relative from the
+    site root (e.g. ``urls.species_filename(code)``). It is deliberately
+    never passed through :meth:`RenderContext.u`: that prefix is for
+    in-page navigation from wherever the current page happens to live,
+    while ``og:url`` must resolve the same regardless of which page
+    links to it, so it is joined onto ``ctx.feed_link`` directly.
+
+    ``image`` is used as-is. Every photo the site publishes is already
+    an absolute URL (hot-linked from Macaulay Library), so there is
+    nothing to prefix. Leave it empty when the page has no photo:
+    :func:`render_page` omits the tag entirely rather than emit
+    ``og:image`` with empty content.
+    """
+
+    title: str
+    path: str
+    type: str = "website"
+    image: str = ""
+
+
 def render_page(
-    title: str, body: str, ctx: RenderContext, active: str, head_extra: str = ""
+    title: str,
+    body: str,
+    ctx: RenderContext,
+    active: str,
+    head_extra: str = "",
+    description: str = "",
+    og: OpenGraph | None = None,
 ) -> str:
     """Render a full page.
 
@@ -570,6 +603,20 @@ def render_page(
     there for the same reason. Empty by default, and it contributes no
     whitespace when empty so a page without it keeps its exact bytes.
 
+    ``description`` is this page's own ``<meta name="description">``.
+    Empty by default, in which case the tag is omitted rather than
+    falling back to a shared tagline: a home page, an archive front, a
+    month bucket and a species page are different documents and should
+    never describe themselves identically.
+
+    ``og`` supplies Open Graph data (see :class:`OpenGraph`). The whole
+    block is emitted only when ``og`` is given *and* ``ctx.feed_link``
+    is configured: a relative ``og:url`` is worse than none, since no
+    client consuming the tag could resolve it, so the block is omitted
+    entirely rather than degraded. ``og:description`` mirrors
+    ``description`` and ``og:image`` is omitted when ``og.image`` is
+    empty, for the reason given on :class:`OpenGraph`.
+
     The second ``rel="alternate"`` is emitted only when the full-history
     feed is actually published, for the reason given on
     :attr:`RenderContext.full_feed`.
@@ -577,6 +624,11 @@ def render_page(
     t = ctx.catalog.t
     stylesheet_href = _esc(ctx.u(urls.STYLESHEET))
     head_block = f"\n  {head_extra}" if head_extra else ""
+    description_meta = (
+        f'\n  <meta name="description" content="{_esc(description)}">'
+        if description
+        else ""
+    )
     full_feed_link = ""
     if ctx.full_feed:
         full_feed_link = (
@@ -584,18 +636,32 @@ def render_page(
             f'{_esc(t("feed.full_title_template", title=t("site.title")))}" '
             f'href="{_esc(ctx.u(urls.FEED_FULL_FILE))}">'
         )
+    og_meta = ""
+    if og is not None and ctx.feed_link:
+        og_tags = [
+            f'<meta property="og:title" content="{_esc(og.title)}">',
+            f'<meta property="og:type" content="{_esc(og.type)}">',
+            f'<meta property="og:url" content="'
+            f'{_esc(urls.absolute(ctx.feed_link, og.path))}">',
+        ]
+        if description:
+            og_tags.append(
+                f'<meta property="og:description" content="{_esc(description)}">'
+            )
+        if og.image:
+            og_tags.append(f'<meta property="og:image" content="{_esc(og.image)}">')
+        og_meta = "\n  " + "\n  ".join(og_tags)
     return f"""<!DOCTYPE html>
 <html lang="{_esc(ctx.catalog.html_lang)}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{_esc(title)}</title>
-  <meta name="description" content="{_esc(t("site.tagline"))}">
+  <title>{_esc(title)}</title>{description_meta}
   <meta name="theme-color" content="#F4EEE0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0F1518" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="{_FAVICON_SVG}">
   <link rel="preload" as="font" type="font/woff2" href="{_esc(ctx.u(urls.FONT_PRELOAD))}" crossorigin>
-  <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="{_esc(ctx.u(urls.FEED_FILE))}">{full_feed_link}
+  <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="{_esc(ctx.u(urls.FEED_FILE))}">{full_feed_link}{og_meta}
   {_THEME_BOOT_SCRIPT}{head_block}
   <link rel="stylesheet" href="{stylesheet_href}">
 </head>
@@ -616,7 +682,14 @@ def build_index(
     t = ctx.catalog.t
     if not entries:
         body = f'<p>{_esc(t("index.empty"))}</p>\n' + render_subscribe(ctx)
-        return render_page(t("site.title"), body, ctx, active="home")
+        # No bird to name yet, so the empty notice doubles as this page's
+        # description instead of a fixed tagline; it is already distinct
+        # and true, unlike sharing "site.tagline" with every other page.
+        og = OpenGraph(title=t("site.title"), path=urls.INDEX_PAGE)
+        return render_page(
+            t("site.title"), body, ctx, active="home",
+            description=t("index.empty"), og=og,
+        )
 
     hero = entries[0]
     grid_entries = entries[1 : 1 + INDEX_GRID_SIZE]
@@ -636,4 +709,14 @@ def build_index(
     page_title = t(
         "page.home_hero_title_template", name=hero.common_name
     )
-    return render_page(page_title, body, ctx, active="home")
+    description = t("page.home_description_template", name=hero.common_name)
+    # The hero is the most recent bird, so its photo is also the site's
+    # most recent, which is what the home page's og:image represents.
+    og = OpenGraph(
+        title=page_title,
+        path=urls.INDEX_PAGE,
+        image=hero.image_url or "",
+    )
+    return render_page(
+        page_title, body, ctx, active="home", description=description, og=og
+    )

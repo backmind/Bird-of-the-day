@@ -53,6 +53,10 @@
   "page.archive_title_template": "Archive — Bird of the Day",
   "page.bucket_title_template": "{month} · Archive · Bird of the Day",
   "page.species_title_template": "{name} · Species page · Bird of the Day",
+  "page.home_description_template": "Today's featured bird: {name}.",
+  "page.archive_description_template": "Browse the full archive: {count} birds published so far.",
+  "page.bucket_description_template": "Birds published in {month}.",
+  "page.species_description_template": "{name}, featured on Bird of the Day: photos, identification notes and range map.",
 
   "description.foreign_disclaimer": "Description in {source_language} (no English translation available).",
   "description.empty_marker": "—",

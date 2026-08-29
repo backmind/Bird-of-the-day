@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from scripts import atomic_io, esc_html as _esc, site_builder, site_css, urls
 from scripts.map_composer import BASEMAP_PATH as _BASEMAP_ASSET
-from scripts.site_builder import RenderContext, SiteEntry
+from scripts.site_builder import OpenGraph, RenderContext, SiteEntry
 
 # Committed self-hosted webfonts (see data/assets/fonts/OFL.txt for
 # provenance). Copied verbatim, same as the basemap: no per-run change,
@@ -166,9 +166,12 @@ def build_archive_front(entries: list[SiteEntry], ctx: RenderContext) -> str:
             f'<p>{_esc(t("archive.empty"))}</p>\n'
             + site_builder.render_subscribe(ctx)
         )
+        description = t("page.archive_description_template", count=0)
+        og = OpenGraph(title=title, path=urls.ARCHIVE_FRONT)
         return site_builder.render_page(
             title, body, ctx, active="archive",
             head_extra=_legacy_anchor_shim(),
+            description=description, og=og,
         )
 
     months = group_by_month(entries)
@@ -187,9 +190,17 @@ def build_archive_front(entries: list[SiteEntry], ctx: RenderContext) -> str:
         f'<div class="grid">\n{cards}\n</div>',
         _month_index(months, ctx),
     ]
+    description = t("page.archive_description_template", count=len(entries))
+    # entries arrives newest first, so entries[0] is the most recent bird
+    # published anywhere on the site, exactly the photo the home page
+    # also uses for its og:image.
+    og = OpenGraph(
+        title=title, path=urls.ARCHIVE_FRONT, image=entries[0].image_url or ""
+    )
     return site_builder.render_page(
         title, "\n".join(body_parts), ctx, active="archive",
         head_extra=_legacy_anchor_shim(),
+        description=description, og=og,
     )
 
 
@@ -268,11 +279,21 @@ def build_species_page(
         _plate_nav(ctx, older=older, newer=newer),
         site_builder.render_subscribe(ctx),
     ]
-    title = ctx.catalog.t(
-        "page.species_title_template", name=latest.common_name
+    t = ctx.catalog.t
+    title = t("page.species_title_template", name=latest.common_name)
+    description = t("page.species_description_template", name=latest.common_name)
+    # The species' own most recent photo, not "the most recent bird
+    # anywhere": this page is about one species, so its og:image always
+    # depicts it, independent of what published elsewhere today.
+    og = OpenGraph(
+        title=title,
+        path=urls.species_filename(latest.species_code),
+        type="article",
+        image=latest.image_url or "",
     )
     return site_builder.render_page(
-        title, "\n".join(body_parts), ctx, active="archive"
+        title, "\n".join(body_parts), ctx, active="archive",
+        description=description, og=og,
     )
 
 
@@ -297,11 +318,22 @@ def build_month_bucket(
     ]
     body_parts.extend(site_builder.render_plate(e, ctx) for e in entries)
     body_parts.append(nav)
+    title = t("page.bucket_title_template", month=label)
+    description = t("page.bucket_description_template", month=label)
+    # entries arrives newest first (see group_by_month), so entries[0] is
+    # the most recent bird published within this month.
+    og = OpenGraph(
+        title=title,
+        path=urls.bucket_filename_for_month(month),
+        image=entries[0].image_url or "",
+    )
     return site_builder.render_page(
-        t("page.bucket_title_template", month=label),
+        title,
         "\n".join(body_parts),
         ctx,
         active="archive",
+        description=description,
+        og=og,
     )
 
 

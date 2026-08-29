@@ -53,6 +53,10 @@
   "page.archive_title_template": "Archives — Oiseau du Jour",
   "page.bucket_title_template": "{month} · Archives · Oiseau du Jour",
   "page.species_title_template": "{name} · Fiche · Oiseau du Jour",
+  "page.home_description_template": "Oiseau vedette du jour : {name}.",
+  "page.archive_description_template": "Parcourez les archives complètes : {count} oiseaux publiés à ce jour.",
+  "page.bucket_description_template": "Oiseaux publiés en {month}.",
+  "page.species_description_template": "{name}, mis à l'honneur sur Oiseau du Jour : photos, indices d'identification et carte de répartition.",
 
   "description.foreign_disclaimer": "Description en {source_language} (traduction française non disponible).",
   "description.empty_marker": "—",
