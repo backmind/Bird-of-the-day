@@ -57,6 +57,18 @@ class TestMatchEx:
         key, state = gbif_taxon_match_ex("Parus major", session=sess)
         assert (key, state) == (None, MATCH_ERROR)
 
+    def test_genus_rank_rejected(self):
+        sess = _session_returning(
+            {
+                "matchType": "HIGHERRANK",
+                "confidence": 95,
+                "usageKey": 2480909,
+                "rank": "GENUS",
+            }
+        )
+        key, state = gbif_taxon_match_ex("Botaurus lentiginosus", session=sess)
+        assert (key, state) == (None, MATCH_NONE)
+
 
 class TestFetchDistributionEx:
     def test_success_builds_map_url(self):

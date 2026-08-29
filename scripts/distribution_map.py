@@ -67,11 +67,21 @@ def gbif_taxon_match_ex(
         match_type = data.get("matchType", "")
         confidence = int(data.get("confidence", 0))
         # Reject NONE matches and very low-confidence guesses; accept
-        # EXACT, FUZZY, and HIGHERRANK as long as confidence is reasonable.
+        # EXACT, FUZZY, and HIGHERRANK as long as confidence is reasonable
+        # and the match rank is checked below (HIGHERRANK can land above
+        # species, e.g. on the genus, which is rejected separately).
         if match_type == "NONE" or confidence < 80:
             logger.info(
                 "GBIF match for %r rejected: matchType=%s confidence=%d",
                 scientific_name, match_type, confidence,
+            )
+            return None, MATCH_NONE
+
+        rank = data.get("rank", "")
+        if rank and rank != "SPECIES":
+            logger.info(
+                "GBIF match for %r rejected: rank=%s (a genus-level match "
+                "would map the whole genus)", scientific_name, rank,
             )
             return None, MATCH_NONE
 
