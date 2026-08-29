@@ -109,13 +109,13 @@ class TestPerPageDescriptions:
         self, catalog
     ):
         # Direct render_page unit check: with no description passed, the
-        # tag is omitted rather than falling back to site.tagline, so an
-        # un-migrated caller cannot silently resurrect the old shared
-        # copy.
+        # tag is omitted rather than falling back to a shared site-wide
+        # copy (the old "site.tagline" key this once read no longer
+        # exists at all), so an un-migrated caller cannot silently
+        # resurrect it.
         ctx = site_builder.RenderContext(catalog=catalog, feed_link="")
         html = site_builder.render_page("Title", "<p>body</p>", ctx, active="home")
         assert 'name="description"' not in html
-        assert catalog.t("site.tagline") not in html
 
 
 class TestOpenGraphWithFeedLink:
