@@ -111,7 +111,10 @@ def test_republication_goes_straight_to_the_rated_list(monkeypatch):
         seen_asset_ids=frozenset({"9"}),
     )
     assert result.asset_id == "7"
-    assert calls["count"] > 1
+    # The exact arithmetic, not just "more than one": asking for a fixed
+    # count would still satisfy a loose assertion while starving the
+    # fourth or fifth publication of a species.
+    assert calls["count"] == 1 + image_fetcher.MACAULAY_LOOKAHEAD
     assert calls["skip"] == frozenset({"9"})
 
 
