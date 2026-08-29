@@ -43,3 +43,8 @@ def test_absolute_joins_with_a_single_slash():
     assert urls.absolute("https://x.es/", "birds/a.html") == "https://x.es/birds/a.html"
     assert urls.absolute("https://x.es", "birds/a.html") == "https://x.es/birds/a.html"
     assert urls.absolute("", "birds/a.html") == "birds/a.html"
+
+
+def test_feed_full_file_is_a_sibling_of_the_feed():
+    assert urls.FEED_FULL_FILE.endswith(".xml")
+    assert urls.FEED_FULL_FILE != urls.FEED_FILE

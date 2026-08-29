@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from scripts import esc_html as _esc, name_linker
+from scripts import atomic_io, esc_html as _esc, name_linker
 
 if TYPE_CHECKING:
     from scripts.i18n import Catalog
@@ -410,7 +410,16 @@ def load_existing_feed(feed_path: str) -> list[FeedEntry]:
         return []
 
 
-def write_feed(xml_string: str, feed_path: str = "feed.xml") -> None:
-    path = Path(feed_path)
-    path.write_text(xml_string, encoding="utf-8")
-    logger.info("Feed written to %s", feed_path)
+def write_feed(xml_string: str, feed_path: str = "feed.xml") -> bool:
+    """Write the feed atomically, only when the bytes actually change.
+
+    Returns whether anything was written. The feed is a published file
+    in a git repository: rewriting identical bytes costs a commit and a
+    cache invalidation for every subscriber for nothing.
+    """
+    written = atomic_io.write_text_if_changed(Path(feed_path), xml_string)
+    if written:
+        logger.info("Feed written to %s", feed_path)
+    else:
+        logger.info("Feed unchanged at %s", feed_path)
+    return written

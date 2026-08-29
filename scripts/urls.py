@@ -17,6 +17,7 @@ from __future__ import annotations
 INDEX_PAGE = "index.html"
 ARCHIVE_FRONT = "archive.html"
 FEED_FILE = "feed.xml"
+FEED_FULL_FILE = "feed-full.xml"
 STYLESHEET = "assets/site.css"
 BASEMAP = "assets/basemap.png"
 SPECIES_DIR = "birds"
