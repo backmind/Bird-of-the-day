@@ -92,9 +92,25 @@ def test_max_pool_species_is_what_we_ask_for(monkeypatch):
 
 
 def test_select_species_blocks_the_recent_window(monkeypatch):
+    """Window 2 over a supply of 4 blocks "c" and "b", the two most
+    recently published, and leaves "a" and "d" eligible.
+
+    A single date's result cannot tell an off-by-one window apart from a
+    correct one: for this fixture "d" happens to win the weighted draw
+    on windows 1, 2 and 3 alike, so pinning one date and one species
+    would pass even if the window boundary were wrong. Checking across
+    many dates instead makes the boundary itself the assertion: no
+    result may ever be one of the blocked species, and the other
+    eligible species ("a") has to be reachable too, not just "d".
+    """
     _patch_region(monkeypatch, [_obs("a"), _obs("b"), _obs("c"), _obs("d")])
-    result = select_species(CONFIG, ["a", "b", "c"], "2026-04-13")
-    assert result["speciesCode"] == "d"
+    dates = [f"2026-04-{day:02d}" for day in range(1, 29)]
+    results = {
+        select_species(CONFIG, ["a", "b", "c"], date)["speciesCode"]
+        for date in dates
+    }
+    assert results.isdisjoint({"b", "c"})
+    assert results == {"a", "d"}
 
 
 def test_select_species_honours_exclude(monkeypatch):
