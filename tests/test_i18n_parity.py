@@ -18,6 +18,8 @@ NEW_KEYS = [
     "nav.older_plate",
     "nav.newer_plate",
     "species.history_heading",
+    "feed.full_title_template",
+    "subscribe.full_feed",
 ]
 
 
@@ -47,3 +49,8 @@ def test_templates_keep_their_placeholders():
         assert "{month}" in catalog["page.bucket_title_template"]
         assert "{name}" in catalog["page.species_title_template"]
         assert "{count}" in catalog["archive.month_subtitle_template"]
+        # Catalog.t drops an unused kwarg without complaint, so a value
+        # that lost {title} would silently degrade the full feed's
+        # channel title (and the page's second <link> title) to a bare
+        # qualifier with the suite still green.
+        assert "{title}" in catalog["feed.full_title_template"]

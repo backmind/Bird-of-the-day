@@ -244,6 +244,10 @@ def build_feed(
 ) -> str:
     """Build an RSS 2.0 XML feed string. All chrome from the catalog.
 
+    ``entries`` must be newest first: the channel ``<pubDate>`` is read
+    off ``entries[0]``, so a list in the other order dates the whole feed
+    to its oldest item.
+
     ``self_path`` is the file this XML will be written to, so the Atom
     self-link points at itself rather than always at feed.xml.
     ``title`` overrides the channel title, which the full-history feed
@@ -346,6 +350,12 @@ def write_feeds(
     Frozen bodies are only trusted when the stored feed declares the
     current format version, so a change to the item's shape re-renders
     the history instead of leaving two formats mixed in one file.
+
+    ``full_stale`` in the result flags the one state this function cannot
+    fix on its own: an instance that had a cap and then removed it leaves
+    a ``feed-full.xml`` behind that nothing rewrites and nothing links.
+    Deleting a published file is out of scope for this module, so the
+    condition is reported rather than acted on.
     """
     feed_path = state_dir / urls.FEED_FILE
     full_path = state_dir / urls.FEED_FULL_FILE
@@ -361,6 +371,7 @@ def write_feeds(
         "full_items": 0,
         "full_written": False,
         "frozen": 0,
+        "full_stale": cap <= 0 and full_path.exists(),
     }
     if cap <= 0:
         # Without a cap the full feed would be a byte-for-byte duplicate.

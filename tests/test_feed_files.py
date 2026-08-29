@@ -3,7 +3,14 @@
 from pathlib import Path
 
 from scripts import urls
-from scripts.feed_builder import FeedEntry, load_existing_feed, write_feed, write_feeds
+from scripts.feed_builder import (
+    FEED_FORMAT,
+    FeedEntry,
+    load_existing_feed,
+    load_feed_format,
+    write_feed,
+    write_feeds,
+)
 from scripts.i18n import Catalog
 
 
@@ -74,6 +81,32 @@ class TestFeedFiles:
         assert not (tmp_path / urls.FEED_FULL_FILE).exists()
 
 
+class TestStaleFullFeed:
+    """Turning the cap off orphans a feed-full.xml that already exists.
+
+    Nothing rewrites it and, since the fix to the page links, nothing
+    mentions it either. Deleting a published file is out of scope, so the
+    run has to say it is there.
+    """
+
+    def test_an_orphaned_full_feed_is_flagged(self, tmp_path):
+        write_feeds(_entries(10), _config(3), Catalog.load("es"), tmp_path)
+        assert (tmp_path / urls.FEED_FULL_FILE).exists()
+        result = write_feeds(_entries(10), _config(0), Catalog.load("es"), tmp_path)
+        assert result["full_stale"] is True
+        # Reported, never removed.
+        assert (tmp_path / urls.FEED_FULL_FILE).exists()
+
+    def test_nothing_is_flagged_when_no_full_feed_was_ever_written(self, tmp_path):
+        result = write_feeds(_entries(10), _config(0), Catalog.load("es"), tmp_path)
+        assert result["full_stale"] is False
+
+    def test_a_maintained_full_feed_is_not_stale(self, tmp_path):
+        write_feeds(_entries(10), _config(3), Catalog.load("es"), tmp_path)
+        result = write_feeds(_entries(10), _config(3), Catalog.load("es"), tmp_path)
+        assert result["full_stale"] is False
+
+
 class TestFreezing:
     def _first_run(self, tmp_path) -> None:
         write_feeds(_entries(5), _config(2), Catalog.load("es"), tmp_path)
@@ -108,13 +141,33 @@ class TestFreezing:
         ]
         assert all("redone" in b for b in bodies)
 
-    def test_a_foreign_format_version_is_not_reused(self, tmp_path):
-        self._first_run(tmp_path)
+    def _restamp(self, tmp_path, replacement: str) -> None:
+        """Rewrite the stored full feed's format marker in place."""
         target = tmp_path / urls.FEED_FULL_FILE
         target.write_text(
-            target.read_text(encoding="utf-8").replace("feed format", "feed shape"),
+            target.read_text(encoding="utf-8").replace(
+                f"feed format {FEED_FORMAT}", replacement
+            ),
             encoding="utf-8",
         )
+
+    def test_a_foreign_format_version_is_not_reused(self, tmp_path):
+        # A real, readable version that is not ours. The marker is still
+        # there, so this exercises the version comparison itself and not
+        # the missing-marker branch below: an implementation that only
+        # asked whether a marker exists would reuse these bodies and mix
+        # two item formats in one file forever.
+        self._first_run(tmp_path)
+        self._restamp(tmp_path, "feed format 1")
+        assert load_feed_format(str(tmp_path / urls.FEED_FULL_FILE)) == 1
+        assert self._second_run(tmp_path)["frozen"] == 0
+
+    def test_a_missing_format_marker_is_not_reused(self, tmp_path):
+        # A feed written before the marker existed: nothing to compare,
+        # so nothing may be trusted.
+        self._first_run(tmp_path)
+        self._restamp(tmp_path, "feed shape 2")
+        assert load_feed_format(str(tmp_path / urls.FEED_FULL_FILE)) is None
         assert self._second_run(tmp_path)["frozen"] == 0
 
     def test_writing_twice_changes_nothing(self, tmp_path):

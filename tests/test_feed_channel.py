@@ -104,3 +104,51 @@ class TestRoundTrip:
 
     def test_missing_file_has_no_format(self, tmp_path):
         assert load_feed_format(str(tmp_path / "nope.xml")) is None
+
+
+class TestReadingWhatIsAlreadyPublished:
+    """The reader has to cope with the feed production is serving today.
+
+    Its items still carry the pre-Task-4 eBird link and its generator
+    string may predate the format marker. Neither may raise, and neither
+    may lose the species code: that code is how a stored body is matched
+    back to the entry that owns it.
+    """
+
+    def test_a_legacy_ebird_item_link_still_yields_the_species_code(self, tmp_path):
+        target = tmp_path / "feed.xml"
+        write_feed(
+            build_feed(
+                [_entry(link="https://ebird.org/species/eurbla")],
+                CONFIG,
+                Catalog.load("es"),
+            ),
+            str(target),
+        )
+        assert "<link>https://ebird.org/species/eurbla</link>" in target.read_text(
+            encoding="utf-8"
+        )
+        loaded = load_existing_feed(str(target))
+        assert [e.species_code for e in loaded] == ["eurbla"]
+
+    def test_a_feed_without_a_marker_has_no_format(self, tmp_path):
+        target = tmp_path / "feed.xml"
+        target.write_text(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<rss version=\"2.0\"><channel>"
+            "<generator>Bird of the Day</generator>"
+            "</channel></rss>",
+            encoding="utf-8",
+        )
+        assert load_feed_format(str(target)) is None
+
+    def test_a_marker_that_is_not_a_number_has_no_format(self, tmp_path):
+        target = tmp_path / "feed.xml"
+        target.write_text(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<rss version=\"2.0\"><channel>"
+            "<generator>Bird of the Day (feed format two)</generator>"
+            "</channel></rss>",
+            encoding="utf-8",
+        )
+        assert load_feed_format(str(target)) is None
