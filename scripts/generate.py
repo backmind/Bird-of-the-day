@@ -267,6 +267,22 @@ def _publication_context(raw_entries: list[dict]) -> list[tuple[int, str]]:
     return context
 
 
+def _entries_newest_first(raw_entries: list[dict]):
+    """History newest first, each entry with its publication facts.
+
+    Yields ``(raw, publication_number, ordinal, previous_date)``. The
+    context is aligned to history in publication order while both callers
+    walk it backwards, so the index mapping lives here once rather than
+    being re-derived at every call site.
+    """
+    context = _publication_context(raw_entries)
+    total = len(raw_entries)
+    for i, raw in enumerate(reversed(raw_entries)):
+        number = total - i
+        ordinal, previous_date = context[number - 1]
+        yield raw, number, ordinal, previous_date
+
+
 def _seen_asset_ids(raw_entries: list[dict], species_code: str) -> frozenset[str]:
     """Photographs this species has already been published with."""
     ids = (
@@ -308,19 +324,19 @@ def _build_site_entries(
     ``description_policy`` argument controls how empty descriptions are
     handled: ``foreign_fallback`` substitutes the rejected foreign text,
     ``strict`` (and ``skip`` from this rendering perspective) leaves them
-    empty so the layout shows the em-dash placeholder.
+    empty so the layout shows the em-dash placeholder. Each entry's
+    publication ordinal and previous publication date are derived from the
+    whole history and threaded into ``SiteEntry.previous_date``.
     """
     entries: list[site_builder.SiteEntry] = []
     cache_dir = str(CACHE_DIR)
     raw_entries = history.get("entries", [])
-    total = len(raw_entries)
-    context = _publication_context(raw_entries)
-    for i, raw in enumerate(reversed(raw_entries)):
+    for raw, publication_number, ordinal, previous_date in _entries_newest_first(
+        raw_entries
+    ):
         code = raw.get("speciesCode")
         if not code:
             continue
-        publication_number = total - i
-        ordinal, previous_date = context[publication_number - 1]
 
         image = _image_for(raw, code, ordinal)
 
@@ -480,12 +496,10 @@ def _rebuild_feed(
     )
 
     all_feed_entries: list[feed_builder.FeedEntry] = []
-    total = len(history["entries"])
-    context = _publication_context(history["entries"])
-    for i, raw in enumerate(reversed(history["entries"])):
+    for raw, publication_number, ordinal, previous_date in _entries_newest_first(
+        history["entries"]
+    ):
         fc = raw["speciesCode"]
-        publication_number = total - i
-        ordinal, previous_date = context[publication_number - 1]
         # The item's own destination on our site. Without feed_link no
         # absolute URL can be formed, and both the item link and the
         # photo fall back to eBird.
