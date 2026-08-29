@@ -168,7 +168,7 @@ def test_observations_note_the_republication_instead_of_giving_up():
     )
     # Never a rescue: the pick still comes from this pool's own species.
     assert result["speciesCode"] in {"a", "b", "c", "d"}
-    assert any("no unpublished species left" in note for note in notes)
+    assert any("offers no species outside the dedup window" in note for note in notes)
 
 
 def test_observations_note_the_clamp():

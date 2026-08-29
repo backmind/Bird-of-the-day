@@ -399,14 +399,16 @@ def _clamp_and_pick(
 
     # Exhaustion is a pure diagnostic here, not a branch: it flags the rare
     # case where the raw, unclamped window would have blocked every species
-    # this pool offers today, meaning today's pick is a republication. It
-    # changes nothing about which candidates are eligible.
+    # this pool offers today. It changes nothing about which candidates are
+    # eligible, and it must not claim more than that: this fires inside one
+    # attempt, and under the skip policy a later re-roll can still land on
+    # a debut from a different pool. The run report's own republished:
+    # line, read back from history, is what tells the true story.
     raw_blocked = set(recency[:window])
     if all(c["speciesCode"] in raw_blocked for c in candidates):
         _note(
             notes,
-            f"{label} has no unpublished species left; "
-            f"today's pick is a republication",
+            f"{label} offers no species outside the dedup window",
         )
 
     if not eligible:
