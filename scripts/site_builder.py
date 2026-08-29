@@ -1,9 +1,14 @@
-"""Generate the static site (index.html + archive.html) from cached birds.
+"""Site chrome, the plate/card renderers, and the home page.
 
-The site is two pages of plain HTML with embedded CSS — no JavaScript, no
-build step. The most recent bird is the hero on ``index.html``; up to 12
-previous birds appear as a grid below it. ``archive.html`` lists every
-entry from history with full content and stable anchors.
+No JavaScript, no build step. This module owns the page shell (header,
+footer, theme toggle), the ``SiteEntry`` dataclass, the plate and card
+renderers shared by every page, and ``build_index``: the most recent
+bird is the hero on ``index.html``, with up to ``INDEX_GRID_SIZE``
+previous birds in a grid below it.
+
+Every other page (the archive front, one bucket per month, one
+canonical page per species) is built in :mod:`scripts.archive_builder`,
+which imports this module for its chrome and renderers.
 """
 
 from __future__ import annotations

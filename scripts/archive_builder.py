@@ -333,8 +333,10 @@ def write_site(
     assets_dir = output_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     # The atlas sections must never depend on a third-party tile server.
+    # urls.BASEMAP is already the full root-relative path, so it joins
+    # onto output_dir, not onto assets_dir.
     try:
-        shutil.copyfile(_BASEMAP_ASSET, assets_dir / "basemap.png")
+        shutil.copyfile(_BASEMAP_ASSET, output_dir / urls.BASEMAP)
     except OSError:
         logger.warning("Could not publish basemap asset from %s", _BASEMAP_ASSET)
     atomic_io.write_text_if_changed(output_dir / urls.STYLESHEET, site_css.CSS)

@@ -625,24 +625,30 @@ def main() -> None:
                     published_anchors_abs, now,
                 )
                 _report_missing_maps(history, composed_paths, report)
-                site_entries = _build_site_entries(
-                    history, description_policy=description_policy
-                )
-                site_result = archive_builder.write_site(
-                    site_entries,
-                    STATE_DIR,
-                    catalog=catalog,
-                    feed_link=feed_link,
-                    english_name_index=english_name_index,
-                    code_to_localized=code_to_localized,
-                    published_anchors=published_anchors,
-                )
-                report.info(
-                    f"site: {site_result['written']} of {site_result['pages']} pages "
-                    f"written, {site_result['unchanged']} unchanged"
-                )
             else:
                 logger.info("Already generated for %s, skipping", date_str)
+
+            # Rendering the whole page set is cheap and the writer is
+            # content-addressed, so this runs on every tick regardless of
+            # whether backfill healed anything: a run that died part way
+            # through the page set on a previous tick must not leave a
+            # mixed set on disk until the next new-day publish.
+            site_entries = _build_site_entries(
+                history, description_policy=description_policy
+            )
+            site_result = archive_builder.write_site(
+                site_entries,
+                STATE_DIR,
+                catalog=catalog,
+                feed_link=feed_link,
+                english_name_index=english_name_index,
+                code_to_localized=code_to_localized,
+                published_anchors=published_anchors,
+            )
+            report.info(
+                f"site: {site_result['written']} of {site_result['pages']} pages "
+                f"written, {site_result['unchanged']} unchanged"
+            )
             report.info(
                 f"already published for {date_str}"
                 + (", outputs rebuilt after healing" if healed else "")

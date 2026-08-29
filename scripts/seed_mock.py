@@ -30,6 +30,7 @@ from scripts import (
     feed_builder,
     i18n,
     image_fetcher,
+    urls,
 )
 from scripts.generate import (
     CACHE_DIR,
@@ -322,7 +323,7 @@ def main() -> None:
                 image_attribution=p["image"].attribution,
                 ml_search_url=p["image"].search_url,
                 pub_date=format_datetime(pub),
-                guid=f"bird-of-the-day-{p['code']}-{date.isoformat()}",
+                guid=urls.feed_guid(p["code"], date.isoformat()),
             )
         )
 

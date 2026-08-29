@@ -52,7 +52,7 @@ def test_a_new_entry_touches_only_the_pages_that_changed(tmp_path, catalog, entr
     archive_builder.write_site(entries, tmp_path, catalog)
     stamps = {p: p.stat().st_mtime_ns for p in tmp_path.rglob("*.html")}
     fresh = [_entry("d", "2026-08-03", 5)] + entries
-    archive_builder.write_site(fresh, tmp_path, catalog)
+    result = archive_builder.write_site(fresh, tmp_path, catalog)
     changed = {
         p.relative_to(tmp_path).as_posix()
         for p, stamp in stamps.items()
@@ -69,6 +69,9 @@ def test_a_new_entry_touches_only_the_pages_that_changed(tmp_path, catalog, entr
     assert (tmp_path / "birds" / "d.html").exists()
     # The untouched month keeps its bytes: that is the churn guarantee.
     assert "archive-2026-07.html" not in changed
+    # Pin the same guarantee through the counter, independent of mtime
+    # resolution: the 4 pages above plus the brand-new birds/d.html.
+    assert result["written"] == 5
     assert "birds/a.html" not in changed
 
 
