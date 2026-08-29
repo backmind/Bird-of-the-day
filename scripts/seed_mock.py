@@ -35,7 +35,6 @@ from scripts import (
 from scripts.generate import (
     CACHE_DIR,
     ENV_PATH,
-    FEED_PATH,
     HISTORY_PATH,
     STATE_DIR,
     _build_site_entries,
@@ -281,8 +280,12 @@ def main() -> None:
     logger.info("history.json written: %d entries", len(history_entries))
 
     # Build feed entries (most recent first, RSS convention)
+    feed_link = config.get("feed_link", "")
     feed_entries = []
-    for date, p in reversed(list(zip(dates, sorted_picks))):
+    total = len(dates)
+    for i, (date, p) in enumerate(reversed(list(zip(dates, sorted_picks)))):
+        number = total - i
+        date_str = date.isoformat()
         taxonomy = ebird_client.lookup_taxonomy(p["code"]) or {}
         # Read wikipedia + GBIF fields from the cached content if present
         cached = content_scraper.load_cached_content(p["code"], str(CACHE_DIR))
@@ -290,6 +293,12 @@ def main() -> None:
         wiki_lang = cached.wikipedia_language if cached else ""
         gbif_key = cached.gbif_taxon_key if cached else None
         map_url = cached.distribution_map_url if cached else ""
+        # Same species page URL scheme as generate._rebuild_feed: without
+        # a configured feed_link no absolute URL can be formed and the
+        # item falls back to eBird.
+        species_page_abs = (
+            urls.absolute(feed_link, urls.species_url(p["code"])) if feed_link else ""
+        )
         entry_html = feed_builder.build_entry_html(
             species_code=p["code"],
             common_name=p["com"],
@@ -309,6 +318,9 @@ def main() -> None:
             english_name_index={},
             code_to_localized={},
             published_anchors={},
+            number=number,
+            date=date_str,
+            species_page_url=species_page_abs,
         )
         pub = datetime.combine(date, datetime.min.time(), tzinfo=timezone.utc).replace(
             hour=7
@@ -323,12 +335,12 @@ def main() -> None:
                 image_attribution=p["image"].attribution,
                 ml_search_url=p["image"].search_url,
                 pub_date=format_datetime(pub),
-                guid=urls.feed_guid(p["code"], date.isoformat()),
+                guid=urls.feed_guid(p["code"], date_str),
+                link=species_page_abs,
             )
         )
 
-    feed_xml = feed_builder.build_feed(feed_entries, config, catalog)
-    feed_builder.write_feed(feed_xml, str(FEED_PATH))
+    feed_builder.write_feeds(feed_entries, config, catalog, STATE_DIR)
 
     # Build site
     site_entries = _build_site_entries(

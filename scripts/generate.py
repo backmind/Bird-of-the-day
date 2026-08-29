@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
@@ -54,6 +55,7 @@ ENV_PATH = BASE_DIR / ".env"
 CACHE_DIR = STATE_DIR / "cache"
 MAPS_DIR = STATE_DIR / "maps"
 FEED_PATH = STATE_DIR / "feed.xml"
+FEED_FULL_PATH = STATE_DIR / urls.FEED_FULL_FILE
 HISTORY_PATH = STATE_DIR / "history.json"
 
 
@@ -103,6 +105,15 @@ def _load_secret_files() -> None:
                 )
 
 
+def _as_bool(value: str) -> bool:
+    """Parse an env var as a flag.
+
+    ``bool("0")`` is True, so the plain type casters in the table below
+    cannot be reused for flags.
+    """
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 # Scalar config keys that may be overridden by environment variables. The
 # table maps an env var name to (config key, caster). Env vars override the
 # JSON file value when present, so users can ship the default
@@ -110,7 +121,7 @@ def _load_secret_files() -> None:
 # with ``-e BOTD_LANGUAGE=fr`` etc. Complex nested structures (like
 # ``pools``) are intentionally not env-var-able — mount a custom file
 # instead.
-_ENV_OVERRIDES: dict[str, tuple[str, type]] = {
+_ENV_OVERRIDES: dict[str, tuple[str, Callable[[str], object]]] = {
     "BOTD_LANGUAGE": ("language", str),
     "BOTD_EBIRD_LOCALE": ("ebird_locale", str),
     "BOTD_DESCRIPTION_POLICY": ("description_policy", str),
@@ -120,6 +131,7 @@ _ENV_OVERRIDES: dict[str, tuple[str, type]] = {
     "BOTD_BACK_DAYS": ("back_days", int),
     "BOTD_BACKFILL_LIMIT": ("backfill_limit", int),
     "BOTD_FEED_LINK": ("feed_link", str),
+    "BOTD_FEED_REBUILD_ALL": ("feed_rebuild_all", _as_bool),
 }
 
 logging.basicConfig(
@@ -339,21 +351,27 @@ def _rebuild_feed(
     code_to_localized: dict,
     published_anchors_abs: dict,
     now: datetime,
-) -> dict[str, str]:
-    """Full-rebuild the RSS feed from history.
+) -> tuple[dict[str, str], dict]:
+    """Full-rebuild the RSS feeds from history.
 
     Every entry gets fresh name-linker output so cross-links to newly
     published species appear retroactively in older entries. pubDates are
     preserved from the existing feed via a pre-pass lookup.
 
-    Returns the ``species_code`` to relative-path map of composed
-    distribution maps, so callers can report the ones that are missing.
+    Returns ``(composed_paths, feed_result)``: ``composed_paths`` is the
+    ``species_code`` to relative-path map of composed distribution maps,
+    so callers can report the ones that are missing; ``feed_result`` is
+    the dict returned by :func:`feed_builder.write_feeds`.
     """
-    existing_pub_by_guid = {
-        e.guid: e.pub_date
-        for e in feed_builder.load_existing_feed(str(FEED_PATH))
-    }
-    max_entries = config.get("max_feed_entries", 0) or None
+    # pubDates come from whichever file still has them. The full feed is
+    # the long memory; feed.xml is the authority for what is currently
+    # published, and on the run that introduces the cap it is still the
+    # only file that exists.
+    existing_pub_by_guid: dict[str, str] = {}
+    for source in (FEED_FULL_PATH, FEED_PATH):
+        for e in feed_builder.load_existing_feed(str(source)):
+            if e.pub_date:
+                existing_pub_by_guid[e.guid] = e.pub_date
 
     # Compose distribution maps for RSS (single image per species).
     feed_link = config.get("feed_link", "")
@@ -362,16 +380,18 @@ def _rebuild_feed(
         str(CACHE_DIR),
         MAPS_DIR,
     )
-    # The feed needs an absolute URL, so it cannot reuse the site's
-    # root-relative path directly; it still goes through urls for both
-    # halves, or a move of the asset would 404 every item's map layer.
-    # An unconfigured feed_link means no absolute URL can be formed at
-    # all, and the feed renders the density layer on its own.
-    basemap_url = urls.absolute(feed_link, urls.BASEMAP) if feed_link else ""
 
     all_feed_entries: list[feed_builder.FeedEntry] = []
-    for raw in reversed(history["entries"]):
+    total = len(history["entries"])
+    for i, raw in enumerate(reversed(history["entries"])):
         fc = raw["speciesCode"]
+        publication_number = total - i
+        # The item's own destination on our site. Without feed_link no
+        # absolute URL can be formed, and both the item link and the
+        # photo fall back to eBird.
+        species_page_abs = (
+            urls.absolute(feed_link, urls.species_url(fc)) if feed_link else ""
+        )
         fi = image_fetcher.load_cached_image(fc, str(CACHE_DIR))
         fco = content_scraper.load_cached_content(fc, str(CACHE_DIR))
         if fco is None:
@@ -382,12 +402,11 @@ def _rebuild_feed(
         ft = ebird_client.lookup_taxonomy(fc) or fco.taxonomy or {}
         fd, fs = _apply_description_policy(fco, description_policy)
 
-        # Build absolute URL for the pre-composed map (if available).
-        composed_map_url = ""
-        if fc in composed_paths and feed_link:
-            composed_map_url = (
-                f"{feed_link.rstrip('/')}/{composed_paths[fc]}"
-            )
+        composed_map_url = (
+            urls.absolute(feed_link, composed_paths[fc])
+            if fc in composed_paths and feed_link
+            else ""
+        )
 
         fen = llm_enricher.load_cached_enrichment(fc, str(CACHE_DIR))
 
@@ -409,7 +428,6 @@ def _rebuild_feed(
             distribution_map_url=fco.distribution_map_url,
             gbif_taxon_key=fco.gbif_taxon_key,
             composed_map_url=composed_map_url,
-            basemap_url=basemap_url,
             iucn_code=fco.iucn_code,
             iucn_birdlife_url=fco.iucn_birdlife_url,
             enriched_prose=fen.prose if fen else "",
@@ -417,6 +435,9 @@ def _rebuild_feed(
             english_name_index=english_name_index,
             code_to_localized=code_to_localized,
             published_anchors=published_anchors_abs,
+            number=publication_number,
+            date=raw["date"],
+            species_page_url=species_page_abs,
         )
         fguid = urls.feed_guid(fc, raw["date"])
         fpub = existing_pub_by_guid.get(fguid, format_datetime(now))
@@ -431,12 +452,17 @@ def _rebuild_feed(
                 ml_search_url=fi.search_url if fi else "",
                 pub_date=fpub,
                 guid=fguid,
+                link=species_page_abs,
             )
         )
-    all_feed_entries = all_feed_entries[:max_entries]
-    feed_xml = feed_builder.build_feed(all_feed_entries, config, catalog)
-    feed_builder.write_feed(feed_xml, str(FEED_PATH))
-    return composed_paths
+    feed_result = feed_builder.write_feeds(
+        all_feed_entries,
+        config,
+        catalog,
+        STATE_DIR,
+        rebuild_all=bool(config.get("feed_rebuild_all", False)),
+    )
+    return composed_paths, feed_result
 
 
 def _report_missing_maps(
@@ -457,6 +483,19 @@ def _report_missing_maps(
         cached = content_scraper.load_cached_content(code, str(CACHE_DIR))
         if cached is not None and cached.distribution_map_url:
             report.warn(f"map composition missing for {code}")
+
+
+def _report_feed(feed_result: dict, report: run_report.RunReport) -> None:
+    """Say what happened to each feed file, the way the site does."""
+    state = "written" if feed_result["feed_written"] else "unchanged"
+    report.info(f"feed: {feed_result['items']} items, {state}")
+    if feed_result["full_items"]:
+        full_state = "written" if feed_result["full_written"] else "unchanged"
+        report.info(
+            f"feed-full: {feed_result['full_items']} items, "
+            f"{feed_result['frozen']} reused from the published feed, "
+            f"{full_state}"
+        )
 
 
 def _select_and_fetch(
@@ -631,28 +670,29 @@ def main() -> None:
                     "Already generated for %s; backfill healed %d, rebuilding",
                     date_str, len(healed),
                 )
-                composed_paths = _rebuild_feed(
+            else:
+                logger.info("Already generated for %s, skipping", date_str)
+
+            # Rendering the whole page set and the feed is cheap and both
+            # writers are content-addressed, so this runs on every tick
+            # regardless of whether backfill healed anything: a run that
+            # died part way through on a previous tick must not leave a
+            # mixed set on disk until the next new-day publish. But only
+            # when maintenance actually succeeded: on a failed taxonomy
+            # fetch the cross-link indexes above are empty dicts, and
+            # writing with those would rewrite every page and every item
+            # with the name linker disabled, content-addressed straight
+            # over the good version already on disk. The same argument
+            # covers english_name_index, the linker's other input: an
+            # outage there is just as silent and just as wide.
+            if maintenance_ok and linker_ok:
+                composed_paths, feed_result = _rebuild_feed(
                     history, config, catalog, description_policy,
                     english_name_index, code_to_localized,
                     published_anchors_abs, now,
                 )
                 _report_missing_maps(history, composed_paths, report)
-            else:
-                logger.info("Already generated for %s, skipping", date_str)
-
-            # Rendering the whole page set is cheap and the writer is
-            # content-addressed, so this runs on every tick regardless of
-            # whether backfill healed anything: a run that died part way
-            # through the page set on a previous tick must not leave a
-            # mixed set on disk until the next new-day publish. But only
-            # when maintenance actually succeeded: on a failed taxonomy
-            # fetch the cross-link indexes above are empty dicts, and
-            # writing with those would rewrite every page with the name
-            # linker disabled, content-addressed straight over the good
-            # version already on disk. The same argument covers
-            # english_name_index, the linker's other input: an outage
-            # there is just as silent and just as wide.
-            if maintenance_ok and linker_ok:
+                _report_feed(feed_result, report)
                 site_entries = _build_site_entries(
                     history, description_policy=description_policy
                 )
@@ -671,12 +711,12 @@ def main() -> None:
                 )
             elif not maintenance_ok:
                 report.warn(
-                    "site rebuild skipped: maintenance failed, "
+                    "rebuild skipped: maintenance failed, "
                     "not republishing with an empty cross-link catalog"
                 )
             else:
                 report.warn(
-                    "site rebuild skipped: taxonomy unavailable, "
+                    "rebuild skipped: taxonomy unavailable, "
                     "not republishing with the name linker disabled"
                 )
             report.info(
@@ -759,12 +799,13 @@ def main() -> None:
             _build_indexes(history, feed_link, ebird_locale)
         )
 
-        # 5. Full-rebuild the RSS feed.
-        composed_paths = _rebuild_feed(
+        # 5. Rebuild the RSS feeds.
+        composed_paths, feed_result = _rebuild_feed(
             history, config, catalog, description_policy,
             english_name_index, code_to_localized, published_anchors_abs, now,
         )
         _report_missing_maps(history, composed_paths, report)
+        _report_feed(feed_result, report)
 
         # 6. Generate the static site.
         site_entries = _build_site_entries(history, description_policy=description_policy)

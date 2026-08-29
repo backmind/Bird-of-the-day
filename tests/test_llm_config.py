@@ -56,3 +56,15 @@ class TestContentModeDeprecation:
             config = generate.load_config()
         assert "content_mode" not in config
         assert any("content_mode" in r.message for r in caplog.records)
+
+
+class TestFeedRebuildFlag:
+    def test_env_flag_parses_truthy_values(self, monkeypatch):
+        from scripts.generate import _as_bool
+
+        assert _as_bool("1") is True
+        assert _as_bool("true") is True
+        assert _as_bool("YES") is True
+        assert _as_bool("0") is False
+        assert _as_bool("false") is False
+        assert _as_bool("") is False
