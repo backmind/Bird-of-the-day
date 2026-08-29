@@ -1,4 +1,4 @@
-"""El run dice cuándo repite y cuándo el pool se está quedando corto."""
+"""El run dice cuándo el ave del día ya había salido antes."""
 
 from scripts import generate
 
