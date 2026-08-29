@@ -267,6 +267,24 @@ def _publication_context(raw_entries: list[dict]) -> list[tuple[int, str]]:
     return context
 
 
+def _republished_note(
+    raw_entries: list[dict], species_code: str, common_name: str
+) -> str:
+    """Report line for a species that has been published before.
+
+    Empty on a debut, which is the overwhelming majority of runs: a line
+    that appears every day is a line nobody reads.
+    """
+    dates = [
+        e.get("date", "")
+        for e in raw_entries
+        if e.get("speciesCode") == species_code and e.get("date")
+    ]
+    if not dates:
+        return ""
+    return f"republished: {common_name} last appeared on {dates[-1]}"
+
+
 def _entries_newest_first(raw_entries: list[dict]):
     """History newest first, each entry with its publication facts.
 
@@ -915,6 +933,11 @@ def main() -> None:
         # printed once per attempt.
         for note in dict.fromkeys(selection_notes):
             report.info(note)
+        republished = _republished_note(
+            history["entries"], species_code, common_name
+        )
+        if republished:
+            report.info(republished)
 
         # 2. LLM enrichment: always attempted when an LLM is configured.
         if llm_enricher.is_configured(config):
