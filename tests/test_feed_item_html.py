@@ -149,6 +149,39 @@ class TestNoPhotoNoSearchUrl:
         assert "Macaulay Library</a>" not in html
 
 
+class TestBulletsWithoutProse:
+    """Prose and bullets arrive as two fields and can arrive alone.
+
+    Nesting the bullets inside the prose branch dropped the heading and
+    the bullets together and published the scraped paragraph in their
+    place, so the entry lost the only enriched content it had.
+    ``tests/test_plate_description.py`` asserts the same of the web
+    renderer, which had the identical shape.
+    """
+
+    def test_bullets_survive_an_empty_prose(self):
+        html = _html(
+            enriched_prose="",
+            description="Un pájaro negro.",
+            description_source="ebird",
+            bow_intro="Introducción.",
+        )
+        assert "<h3>Identificación en campo</h3>" in html
+        assert "<li>Pico amarillo.</li>" in html
+        assert "<li>Ojo con anillo.</li>" in html
+        # The scraped text does not take their place.
+        assert "Un pájaro negro." not in html
+        assert "Introducción." not in html
+
+    def test_prose_survives_empty_bullets(self):
+        # The other half of the same split, which used to work only
+        # because the bullets were the nested branch.
+        html = _html(enriched_identification=None, description="Un pájaro negro.")
+        assert "Primero." in html
+        assert "Segundo." in html
+        assert "Un pájaro negro." not in html
+
+
 class TestFallbackDescription:
     def test_scraped_description_renders_without_a_heading(self):
         html = _html(

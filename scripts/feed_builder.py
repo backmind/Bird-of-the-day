@@ -161,19 +161,25 @@ def build_entry_html(
     _eni = english_name_index or {}
     _c2l = code_to_localized or {}
     _pa = published_anchors or {}
+    # Prose and bullets are asked for separately and can arrive
+    # separately, so they are rendered on their own conditions: nesting
+    # the bullets inside the prose dropped both them and their heading
+    # whenever an enrichment came back with one and not the other, and
+    # published the scraped paragraph in their place. site_builder
+    # renders the same two fields with the same three branches.
     if enriched_prose:
         for para in (p.strip() for p in enriched_prose.split("\n\n") if p.strip()):
             parts.append(
                 f"<p>{name_linker.process_description(para, _eni, _c2l, _pa, catalog.language)}</p>"
             )
-        if enriched_identification:
-            # The heading the front has always had and the feed never
-            # did: without it the bullets hang off the prose with no
-            # indication of what they are.
-            parts.append(f'<h3>{_esc(catalog.t("identification.label"))}</h3>')
-            bullets = "".join(f"<li>{_esc(b)}</li>" for b in enriched_identification)
-            parts.append(f"<ul>{bullets}</ul>")
-    else:
+    if enriched_identification:
+        # The heading the front has always had and the feed never did:
+        # without it the bullets hang off the prose with no indication
+        # of what they are.
+        parts.append(f'<h3>{_esc(catalog.t("identification.label"))}</h3>')
+        bullets = "".join(f"<li>{_esc(b)}</li>" for b in enriched_identification)
+        parts.append(f"<ul>{bullets}</ul>")
+    if not enriched_prose and not enriched_identification:
         if description:
             parts.append(
                 f"<p>{name_linker.process_description(description, _eni, _c2l, _pa, catalog.language)}</p>"

@@ -270,11 +270,17 @@ def render_plate(
         )
 
     _lang = ctx.catalog.language
+    # Enriched mode: LLM-generated prose and identification bullets. They
+    # are asked for separately and can arrive separately, so each is
+    # rendered on its own condition; nesting the bullets inside the prose
+    # dropped both them and their heading whenever an enrichment came
+    # back with one and not the other, and published the scraped
+    # paragraph in their place. feed_builder.build_entry_html renders the
+    # same two fields with the same three branches.
+    desc_html = ""
     if entry.enriched_prose:
-        # Enriched mode: LLM-generated prose + identification bullets.
         # Split on double-newline so each paragraph gets its own <p>.
         paragraphs = [p.strip() for p in entry.enriched_prose.split("\n\n") if p.strip()]
-        desc_html = ""
         for para in paragraphs:
             processed = name_linker.process_description(
                 para,
@@ -284,46 +290,47 @@ def render_plate(
                 _lang,
             )
             desc_html += f'<p class="plate-description">{processed}</p>'
-        if entry.enriched_identification:
-            id_label = ctx.catalog.t("identification.label")
-            bullets = "".join(
-                f"<li>{_esc(b)}</li>" for b in entry.enriched_identification
-            )
-            desc_html += f'<p class="plate-id-label">{_esc(id_label)}</p>'
-            desc_html += f'<ul class="plate-identification">{bullets}</ul>'
-    elif entry.description:
-        processed_desc = name_linker.process_description(
-            entry.description,
-            ctx.english_name_index,
-            ctx.code_to_localized,
-            ctx.published_anchors,
-            _lang,
+    if entry.enriched_identification:
+        id_label = ctx.catalog.t("identification.label")
+        bullets = "".join(
+            f"<li>{_esc(b)}</li>" for b in entry.enriched_identification
         )
-        desc_html = f'<p class="plate-description">{processed_desc}</p>'
-        if entry.description_source == "ebird-foreign":
-            lang_name = ctx.catalog.t(
-                f"language_name.{entry.fallback_language or 'en'}"
-            )
-            disclaimer = ctx.catalog.t(
-                "description.foreign_disclaimer", source_language=lang_name
-            )
-            desc_html += (
-                f'<p class="plate-description-note"><em>{_esc(disclaimer)}</em></p>'
-            )
-        if entry.bow_intro:
-            processed_bow = name_linker.process_description(
-                entry.bow_intro,
+        desc_html += f'<p class="plate-id-label">{_esc(id_label)}</p>'
+        desc_html += f'<ul class="plate-identification">{bullets}</ul>'
+    if not entry.enriched_prose and not entry.enriched_identification:
+        if entry.description:
+            processed_desc = name_linker.process_description(
+                entry.description,
                 ctx.english_name_index,
                 ctx.code_to_localized,
                 ctx.published_anchors,
                 _lang,
             )
-            desc_html += (
-                f'<p class="plate-description">{processed_bow}</p>'
-            )
-    else:
-        marker = ctx.catalog.t("description.empty_marker")
-        desc_html = f'<p class="plate-description empty">{_esc(marker)}</p>'
+            desc_html = f'<p class="plate-description">{processed_desc}</p>'
+            if entry.description_source == "ebird-foreign":
+                lang_name = ctx.catalog.t(
+                    f"language_name.{entry.fallback_language or 'en'}"
+                )
+                disclaimer = ctx.catalog.t(
+                    "description.foreign_disclaimer", source_language=lang_name
+                )
+                desc_html += (
+                    f'<p class="plate-description-note"><em>{_esc(disclaimer)}</em></p>'
+                )
+            if entry.bow_intro:
+                processed_bow = name_linker.process_description(
+                    entry.bow_intro,
+                    ctx.english_name_index,
+                    ctx.code_to_localized,
+                    ctx.published_anchors,
+                    _lang,
+                )
+                desc_html += (
+                    f'<p class="plate-description">{processed_bow}</p>'
+                )
+        else:
+            marker = ctx.catalog.t("description.empty_marker")
+            desc_html = f'<p class="plate-description empty">{_esc(marker)}</p>'
 
     number_html = (
         f'<span class="plate-number"><span class="glyph">№</span>&nbsp;{entry.number}</span>'
