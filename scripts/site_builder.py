@@ -142,7 +142,7 @@ def _render_header(ctx: RenderContext, active: str) -> str:
 """.strip()
 
 
-def _render_subscribe(ctx: RenderContext, feed_url: str = "") -> str:
+def render_subscribe(ctx: RenderContext, feed_url: str = "") -> str:
     """Refined RSS footnote — not a marketing banner."""
     t = ctx.catalog.t
     target = feed_url or ctx.u(urls.FEED_FILE)
@@ -197,7 +197,7 @@ def _specimen_tag(taxonomy: dict) -> str:
     return f'<p class="specimen-tag">{" · ".join(parts)}</p>'
 
 
-def _render_plate(
+def render_plate(
     entry: SiteEntry, ctx: RenderContext, *, hero: bool = False
 ) -> str:
     """Render a bird as a numbered field-journal plate.
@@ -426,7 +426,7 @@ def _render_atlas(entry: SiteEntry, ctx: RenderContext, *, hero: bool = False) -
 """.strip()
 
 
-def _render_card(entry: SiteEntry, ctx: RenderContext) -> str:
+def render_card(entry: SiteEntry, ctx: RenderContext) -> str:
     """Render a grid card linking to the entry's canonical species page."""
     if entry.image_url:
         thumb = (
@@ -489,7 +489,7 @@ _THEME_BOOT_SCRIPT = (
 )
 
 
-def _page(
+def render_page(
     title: str, body: str, ctx: RenderContext, active: str
 ) -> str:
     t = ctx.catalog.t
@@ -524,14 +524,14 @@ def build_index(
 ) -> str:
     t = ctx.catalog.t
     if not entries:
-        body = f'<p>{_esc(t("index.empty"))}</p>\n' + _render_subscribe(ctx)
-        return _page(t("site.title"), body, ctx, active="home")
+        body = f'<p>{_esc(t("index.empty"))}</p>\n' + render_subscribe(ctx)
+        return render_page(t("site.title"), body, ctx, active="home")
 
     hero = entries[0]
     grid_entries = entries[1 : 1 + INDEX_GRID_SIZE]
     grid_html = ""
     if grid_entries:
-        cards = "\n".join(_render_card(e, ctx) for e in grid_entries)
+        cards = "\n".join(render_card(e, ctx) for e in grid_entries)
         grid_html = f"""
 <div class="section-divider"><span class="label">{_esc(t("section.recent"))}</span></div>
 <div class="grid">
@@ -540,12 +540,12 @@ def build_index(
 """.strip()
 
     body = "\n".join(
-        [_render_plate(hero, ctx, hero=True), _render_subscribe(ctx), grid_html]
+        [render_plate(hero, ctx, hero=True), render_subscribe(ctx), grid_html]
     )
     page_title = t(
         "page.home_hero_title_template", name=hero.common_name
     )
-    return _page(page_title, body, ctx, active="home")
+    return render_page(page_title, body, ctx, active="home")
 
 
 def build_archive(
@@ -553,8 +553,8 @@ def build_archive(
 ) -> str:
     t = ctx.catalog.t
     if not entries:
-        body = f'<p>{_esc(t("archive.empty"))}</p>\n' + _render_subscribe(ctx)
-        return _page(
+        body = f'<p>{_esc(t("archive.empty"))}</p>\n' + render_subscribe(ctx)
+        return render_page(
             t("page.archive_title_template"), body, ctx, active="archive"
         )
     body_parts = [
@@ -562,13 +562,13 @@ def build_archive(
         f'<h1>{_esc(t("section.archive_title"))}</h1>',
         f'<p>{_esc(t("section.archive_subtitle"))}</p>',
         "</div>",
-        _render_subscribe(ctx),
+        render_subscribe(ctx),
     ]
     body_parts.extend(
-        _render_plate(e, ctx, hero=False)
+        render_plate(e, ctx, hero=False)
         for e in entries[:ARCHIVE_MAX_ENTRIES]
     )
-    return _page(
+    return render_page(
         t("page.archive_title_template"),
         "\n".join(body_parts),
         ctx,

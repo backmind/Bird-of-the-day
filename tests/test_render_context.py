@@ -50,7 +50,7 @@ def test_index_cards_link_to_the_species_page():
         ml_search_url="https://example.invalid/ml",
         number=3,
     )
-    html = site_builder._render_card(entry, _ctx())
+    html = site_builder.render_card(entry, _ctx())
     assert 'href="birds/eurbla.html"' in html
 
 
