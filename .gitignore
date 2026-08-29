@@ -33,3 +33,7 @@ cache/*
 !cache/.gitkeep
 maps/*
 !maps/.gitkeep
+
+# Agent scratch (worktrees and plan ledgers, never published)
+.worktrees/
+.superpowers/
