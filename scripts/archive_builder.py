@@ -20,6 +20,11 @@ from scripts import atomic_io, esc_html as _esc, site_builder, site_css, urls
 from scripts.map_composer import BASEMAP_PATH as _BASEMAP_ASSET
 from scripts.site_builder import RenderContext, SiteEntry
 
+# Committed self-hosted webfonts (see data/assets/fonts/OFL.txt for
+# provenance). Copied verbatim, same as the basemap: no per-run change,
+# so the copy never dirties a commit whose fonts did not change.
+_FONTS_SRC_DIR = Path(__file__).resolve().parent.parent / "data" / "assets" / "fonts"
+
 if TYPE_CHECKING:
     from scripts.i18n import Catalog
 
@@ -358,6 +363,13 @@ def write_site(
         shutil.copyfile(_BASEMAP_ASSET, output_dir / urls.BASEMAP)
     except OSError:
         logger.warning("Could not publish basemap asset from %s", _BASEMAP_ASSET)
+    fonts_dir = output_dir / urls.FONTS_DIR
+    fonts_dir.mkdir(parents=True, exist_ok=True)
+    for filename in urls.FONT_FILES:
+        try:
+            shutil.copyfile(_FONTS_SRC_DIR / filename, fonts_dir / filename)
+        except OSError:
+            logger.warning("Could not publish font asset %s from %s", filename, _FONTS_SRC_DIR)
     atomic_io.write_text_if_changed(output_dir / urls.STYLESHEET, site_css.CSS)
 
     pages: dict[str, str] = {

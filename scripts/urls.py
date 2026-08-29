@@ -21,6 +21,16 @@ FEED_FULL_FILE = "feed-full.xml"
 STYLESHEET = "assets/site.css"
 BASEMAP = "assets/basemap.png"
 SPECIES_DIR = "birds"
+FONTS_DIR = "assets/fonts"
+FONT_FILES = (
+    "fraunces-latin.woff2",
+    "fraunces-latin-ext.woff2",
+    "source-serif-4-latin.woff2",
+    "source-serif-4-latin-ext.woff2",
+)
+# The one font file worth a <link rel="preload">: the family that paints
+# the plate heading, subset to the range almost every reader needs.
+FONT_PRELOAD = f"{FONTS_DIR}/fraunces-latin.woff2"
 
 
 def month_key(date: str) -> str:

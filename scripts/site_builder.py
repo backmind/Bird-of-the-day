@@ -594,6 +594,7 @@ def render_page(
   <meta name="theme-color" content="#F4EEE0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0F1518" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="{_FAVICON_SVG}">
+  <link rel="preload" as="font" type="font/woff2" href="{_esc(ctx.u(urls.FONT_PRELOAD))}" crossorigin>
   <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="{_esc(ctx.u(urls.FEED_FILE))}">{full_feed_link}
   {_THEME_BOOT_SCRIPT}{head_block}
   <link rel="stylesheet" href="{stylesheet_href}">
