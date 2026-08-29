@@ -17,9 +17,11 @@ language and weights to your taste. English, Spanish, French and
 Portuguese catalogs are included. Adding another language is one JSON
 file under `data/i18n/`.
 
-An optional LLM enrichment mode can generate warm, narrative prose and
-field-ID tips from the scraped sources (any OpenAI-compatible endpoint).
-The project runs fine without it. No tracking, no cookies.
+Optional LLM enrichment generates warm, narrative prose and field-ID
+tips from the scraped sources whenever an OpenAI-compatible endpoint is
+configured, trying an ordered chain of models until one succeeds. The
+project runs fine without it, publishing the scraped description
+directly. No tracking, no cookies.
 
 ## Endpoints
 
@@ -48,26 +50,32 @@ GitHub Actions (cron daily 07:00 UTC)
   │     (with fallback to og:image on the eBird species page)
   ├─ 4. Description chain in the configured language:
   │     eBird Merlin → Wikipedia → policy-driven fallback
-  ├─ 4b. (optional) LLM enrichment: sends scraped data to an
-  │     OpenAI-compatible endpoint, receives narrative prose + ID tips
+  ├─ 4b. LLM enrichment (when an LLM endpoint is configured):
+  │     narrative prose + ID tips, structurally validated, with
+  │     automatic backfill of past failures
   ├─ 5. Wikipedia URL captured (target language → English fallback)
   │     so the footer link is always present
-  ├─ 6. GBIF distribution map composed (basemap + density overlay)
+  ├─ 6. GBIF distribution map composed (committed basemap +
+  │     density overlay)
   ├─ 7. feed.xml + index.html + archive.html written
   └─ 8. git commit + git push → GitHub Pages republishes
 ```
 
 The selection is **deterministic by date**: two runs on the same day pick
-exactly the same species. The script bails early if today's entry is
-already in `history.json`, so the daily cron and ad-hoc reruns don't
-duplicate work.
+exactly the same species. If today's entry is already in `history.json`,
+publication is skipped, but maintenance always runs first: up to
+`backfill_limit` past entries with a missed LLM enrichment or a failed
+GBIF map lookup are retried, and the feed and site are rebuilt when any
+of them heal. This makes the daily cron and ad-hoc reruns self-healing
+instead of duplicating work. See [Backfill and
+self-healing](#backfill-and-self-healing) below.
 
 ## Stack
 
 - Python 3.12+, managed with [`uv`](https://github.com/astral-sh/uv)
 - Four runtime dependencies: `requests`, `beautifulsoup4`, `langid`, `Pillow`
-- No database. State lives in three files in the repo: `feed.xml`,
-  `history.json`, `cache/`
+- No database. State lives in a few paths in the repo: `feed.xml`,
+  `history.json`, `cache/`, `maps/`
 
 ## Local installation
 
@@ -86,7 +94,7 @@ cp data/config.example.json data/config.json
 | Variable | Required | Where to get it |
 |---|---|---|
 | `EBIRD_API_KEY` | yes | Free at <https://ebird.org/api/keygen> |
-| `BOTD_LLM_API_KEY` | only for `enriched` mode | Your LLM provider (e.g. [Google AI Studio](https://aistudio.google.com/apikey)) |
+| `BOTD_LLM_API_KEY` | only if LLM enrichment is configured | Your LLM provider (e.g. [Google AI Studio](https://aistudio.google.com/apikey)) |
 
 For local use copy `.env.example` to `.env` and fill the key:
 
@@ -133,19 +141,48 @@ Every behavior knob lives here. Annotated example:
   "dedup_window": 50,
   "max_feed_entries": 60,
   "back_days": 14,
+  "backfill_limit": 3,
 
   "feed_link": "https://YOUR-USERNAME.github.io/Bird-of-the-day/",
 
   "llm": {
     "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "model": "gemini-flash-latest",
-    "temperature": 0,
-    "max_retries": 2
+    "models": ["gemini-2.5-flash"],
+    "temperature": 0.6,
+    "judge": false
   }
 }
 ```
 
 Keys starting with `_` are documentation-only and ignored at load time.
+
+### LLM enrichment
+
+| Key | Meaning |
+|---|---|
+| `llm.endpoint` | OpenAI-compatible chat completions base URL. Omit the whole `llm` block (or leave it unset) to disable enrichment. |
+| `llm.models` | Ordered fallback chain, e.g. `["gemini-2.5-flash", "gemini-2.0-flash"]`. Models are tried in turn until one returns valid content. Pin concrete model names, not `-latest` aliases, so a provider-side swap can't silently change output mid-chain. |
+| `llm.temperature` | Sampling temperature passed to the endpoint. |
+| `llm.judge` | Enables an optional second-pass fact-check: a follow-up call reviews the draft against the scraped sources and can send it back for revision. Off by default; adds one extra request per entry. |
+| `llm.max_retries` | Retries per model before moving to the next one in the chain (default `3`, so up to 4 attempts on a given model, with increasing backoff between them). |
+
+Enrichment runs automatically whenever `llm.endpoint`, `llm.models` and
+the `BOTD_LLM_API_KEY` env var are all set; there is no separate on/off
+flag. A failed or invalid LLM response falls back to the scraped
+programmatic description for that day rather than failing the run, and
+the miss is picked up by the next run's backfill pass.
+
+### Backfill and self-healing
+
+Every run, before touching today's entry, the generator retries a
+bounded number of past failures: entries published without an LLM
+enrichment (the endpoint was down or misconfigured that day) or without
+a GBIF distribution map (a transient lookup error). `backfill_limit`
+caps how many such healing actions run per invocation, newest entry
+first (default `3`; `0` disables self-healing). Override it with the
+`BOTD_BACKFILL_LIMIT` environment variable. Healed entries trigger a
+feed and site rebuild even on days when today's bird was already
+published.
 
 ### Description policy
 
@@ -201,8 +238,17 @@ Copy `.github/bird-of-the-day.yml.example` to
 - Manually from the **Actions → Bird of the Day → Run workflow** tab.
 
 The workflow `git add`s `feed.xml`, `history.json`, `index.html`,
-`archive.html` and `cache/`, then commits with a message of the form
-`🐦 Bird of the day: 2026-04-11` and pushes to the default branch.
+`archive.html`, `cache/` and `maps/`, then commits with a message of the
+form `🐦 Bird of the day: 2026-04-11` and pushes to the default branch.
+
+Every run writes a summary to the job log, whether or not anything is
+degraded. In GitHub Actions specifically, each degraded step (a failed
+backfill healing action, an LLM enrichment that fell back to the
+programmatic description) is also surfaced as an `::warning::` build
+annotation and appended to the job's step summary. The job itself still
+succeeds (the site keeps publishing through outages); this reporting
+just makes degradation visible instead of silently hiding it in the
+scraped-fallback output.
 
 ## Self-hosting
 
@@ -263,6 +309,7 @@ and overrides it if set:
 | `BOTD_DEDUP_WINDOW` | `dedup_window` | `50` |
 | `BOTD_MAX_FEED_ENTRIES` | `max_feed_entries` | `60` |
 | `BOTD_BACK_DAYS` | `back_days` | `14` |
+| `BOTD_BACKFILL_LIMIT` | `backfill_limit` | `3` |
 | `BOTD_FEED_LINK` | `feed_link` | `https://example.com/birds/` |
 
 `EBIRD_API_KEY` is required. LLM enrichment runs whenever
@@ -313,6 +360,8 @@ The single volume at `/var/lib/botd` holds all mutable state:
 ```
 /var/lib/botd/
 ├── cache/         # per-species + taxonomy caches
+├── maps/          # composed distribution maps embedded in the RSS feed
+├── assets/        # basemap.png, copied from the image at build time
 ├── feed.xml       # the RSS feed
 ├── index.html     # the front page
 ├── archive.html   # the chronological archive
@@ -400,7 +449,8 @@ mount your own at `/etc/supercronic/crontab`.
    write your domain in it. Configure your DNS to point to
    `<user>.github.io`.
 5. **Settings → Secrets and variables → Actions** → add `EBIRD_API_KEY`.
-   Optionally add `BOTD_LLM_API_KEY` if using enriched mode.
+   Optionally add `BOTD_LLM_API_KEY` and set `llm.endpoint` / `llm.models`
+   in your config to enable LLM enrichment.
 6. **Settings → Pages → Build and deployment** → source: `Deploy from a
    branch`, branch: `main`, folder: `/ (root)`. Save.
 7. Either wait for the daily cron or trigger **Actions → Bird of the
@@ -492,9 +542,11 @@ Bird-of-the-day/
 │   └── seed_mock.py       # developer-only: populate the site for visual review
 ├── data/
 │   ├── config.example.json     # copy to config.json and customize
+│   ├── assets/basemap@2x.png   # committed OSM/GBIF world tile (map base layer)
 │   └── i18n/{es,en,fr,pt}.json # translation catalogs
 ├── cache/                 # taxonomy + per-species caches (generated)
-├── maps/                  # composed distribution maps (generated)
+├── maps/                  # composed distribution maps for RSS (generated)
+├── assets/                # basemap.png copied here at build time (generated)
 ├── CNAME.example          # copy to CNAME for custom domain setup
 ├── .env.example           # environment variable template
 ├── pyproject.toml         # dependencies and uv metadata
@@ -517,6 +569,12 @@ Bird-of-the-day/
   attribution and links back to the source, with no commercial purpose.
 - **Wikipedia**: REST summary content is CC BY-SA 3.0; we link to the
   canonical article and don't redistribute beyond the short summary.
+- **GBIF distribution maps**: occurrence density tiles are served live
+  from GBIF and attributed as such. The base map layer underneath them
+  is a committed static tile (`data/assets/basemap@2x.png`, GBIF's own
+  `gbif-light` OpenStreetMap style, downloaded once) rather than a live
+  third-party basemap request. Both layers are credited in the map
+  itself: "OpenStreetMap · GBIF".
 - **Generated data** (feed, site): MIT, free to reuse with attribution.
 
 ## Privacy
@@ -526,8 +584,11 @@ it persists between visits. That's the only client-side state, it never
 leaves the browser, and it falls under the "strictly necessary functional
 preferences" exemption of the EU ePrivacy Directive — no consent banner
 or cookie notice is required. There are no cookies, no analytics, no
-trackers, and no third-party requests beyond Google Fonts (for typography)
-and the Macaulay Library CDN (for photos).
+trackers, and no third-party requests beyond Google Fonts (for
+typography), the Macaulay Library CDN (for photos), and the GBIF tile
+server (for the live occurrence-density overlay on distribution maps;
+the base map layer underneath it is a committed local asset, not a
+third-party request).
 
 ## License
 
