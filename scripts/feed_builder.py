@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from scripts import atomic_io, esc_html as _esc, name_linker
+from scripts import atomic_io, esc_html as _esc, name_linker, urls
 
 if TYPE_CHECKING:
     from scripts.i18n import Catalog
@@ -25,9 +25,19 @@ logger = logging.getLogger(__name__)
 
 CONTENT_NS = "http://purl.org/rss/1.0/modules/content/"
 ATOM_NS = "http://www.w3.org/2005/Atom"
+MEDIA_NS = "http://search.yahoo.com/mrss/"
 
 ET.register_namespace("content", CONTENT_NS)
 ET.register_namespace("atom", ATOM_NS)
+ET.register_namespace("media", MEDIA_NS)
+
+# Version of the item body format. Written into <generator> and read
+# back when deciding whether a stored feed's item bodies can be reused
+# as-is; bump it whenever build_entry_html changes shape, so the next
+# run re-renders the history instead of mixing two formats forever.
+FEED_FORMAT = 2
+GENERATOR = f"Bird of the Day (feed format {FEED_FORMAT})"
+_GENERATOR_RE = re.compile(r"feed format (\d+)")
 
 
 @dataclass
@@ -41,6 +51,9 @@ class FeedEntry:
     ml_search_url: str
     pub_date: str
     guid: str
+    # Absolute URL of the item on our own site. Empty when no feed_link
+    # is configured, in which case the item falls back to eBird.
+    link: str = ""
 
 
 def build_entry_html(
@@ -217,23 +230,39 @@ def build_entry_html(
 
 
 def build_feed(
-    entries: list[FeedEntry], config: dict, catalog: "Catalog"
+    entries: list[FeedEntry],
+    config: dict,
+    catalog: "Catalog",
+    *,
+    self_path: str = urls.FEED_FILE,
+    title: str = "",
 ) -> str:
-    """Build an RSS 2.0 XML feed string. All chrome from the catalog."""
+    """Build an RSS 2.0 XML feed string. All chrome from the catalog.
+
+    ``self_path`` is the file this XML will be written to, so the Atom
+    self-link points at itself rather than always at feed.xml.
+    ``title`` overrides the channel title, which the full-history feed
+    uses to distinguish itself in a reader subscribed to both.
+    """
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
 
     # Channel metadata
-    ET.SubElement(channel, "title").text = catalog.t("feed.title")
+    ET.SubElement(channel, "title").text = title or catalog.t("feed.title")
     feed_link = config.get("feed_link", "")
     ET.SubElement(channel, "link").text = feed_link
     ET.SubElement(channel, "description").text = catalog.t("feed.description")
     ET.SubElement(channel, "language").text = catalog.html_lang
+    # The newest item's date, not the run's clock: a lastBuildDate would
+    # change the file on every run and cost a commit for nothing.
+    if entries:
+        ET.SubElement(channel, "pubDate").text = entries[0].pub_date
+    ET.SubElement(channel, "generator").text = GENERATOR
 
     # Atom self-link
     if feed_link:
         atom_link = ET.SubElement(channel, f"{{{ATOM_NS}}}link")
-        atom_link.set("href", f"{feed_link.rstrip('/')}/feed.xml")
+        atom_link.set("href", urls.absolute(feed_link, self_path))
         atom_link.set("rel", "self")
         atom_link.set("type", "application/rss+xml")
 
@@ -251,12 +280,27 @@ def build_feed(
             f"{entry.common_name} ({entry.scientific_name})"
         )
         ET.SubElement(item, "link").text = (
-            f"https://ebird.org/species/{entry.species_code}"
+            entry.link or f"https://ebird.org/species/{entry.species_code}"
         )
         guid = ET.SubElement(item, "guid")
         guid.text = entry.guid
         guid.set("isPermaLink", "false")
         ET.SubElement(item, "pubDate").text = entry.pub_date
+
+        # Media RSS for the hero photo. Not <enclosure>, which requires
+        # a byte length we do not know and would have to either fake or
+        # fetch. Macaulay URLs carry no extension; the CDN serves JPEG.
+        if entry.image_url:
+            media = ET.SubElement(item, f"{{{MEDIA_NS}}}content")
+            media.set("url", entry.image_url)
+            media.set("medium", "image")
+            media.set("type", "image/jpeg")
+            if entry.image_attribution:
+                credit = ET.SubElement(media, f"{{{MEDIA_NS}}}credit")
+                credit.set("role", "photographer")
+                credit.text = entry.image_attribution
+            thumb = ET.SubElement(item, f"{{{MEDIA_NS}}}thumbnail")
+            thumb.set("url", entry.image_url)
 
         # content:encoded — will be wrapped in CDATA during post-processing
         content_elem = ET.SubElement(item, f"{{{CONTENT_NS}}}encoded")
@@ -353,11 +397,13 @@ def load_existing_feed(feed_path: str) -> list[FeedEntry]:
                 continue
             guid_text = guid_elem.text.strip()
 
-            # Extract species code from link
+            # Extract the species code from the link. It used to be an
+            # eBird URL ending in the code; it is now our own species
+            # page, so the .html suffix has to come off.
             species_code = ""
             if link_elem is not None and link_elem.text:
-                parts = link_elem.text.rstrip("/").split("/")
-                species_code = parts[-1] if parts else ""
+                tail = link_elem.text.rstrip("/").split("/")[-1]
+                species_code = tail[:-5] if tail.endswith(".html") else tail
 
             # Parse common_name and scientific_name from title
             common_name = ""
@@ -381,6 +427,7 @@ def load_existing_feed(feed_path: str) -> list[FeedEntry]:
                     ml_search_url="",
                     pub_date=pub_date_elem.text if pub_date_elem is not None and pub_date_elem.text else "",
                     guid=guid_text,
+                    link=link_elem.text.strip() if link_elem is not None and link_elem.text else "",
                 )
             )
 
@@ -388,6 +435,23 @@ def load_existing_feed(feed_path: str) -> list[FeedEntry]:
     except (OSError, ET.ParseError, KeyError):
         logger.warning("Failed to parse existing feed at %s", feed_path, exc_info=True)
         return []
+
+
+def load_feed_format(feed_path: str) -> int | None:
+    """Read the item body format version a stored feed declares.
+
+    Returns None when the file is missing or predates the marker, which
+    callers read as "do not reuse anything from it".
+    """
+    path = Path(feed_path)
+    if not path.exists():
+        return None
+    try:
+        match = _GENERATOR_RE.search(path.read_text(encoding="utf-8"))
+    except OSError:
+        logger.warning("Could not read %s", feed_path, exc_info=True)
+        return None
+    return int(match.group(1)) if match else None
 
 
 def write_feed(xml_string: str, feed_path: str = "feed.xml") -> bool:
