@@ -1,4 +1,4 @@
-"""Ventana escalada, clamp por oferta y válvula de reciclaje."""
+"""Ventana escalada y clamp por oferta: el clamp es la válvula."""
 
 import math
 
@@ -7,7 +7,6 @@ from scripts.ebird_client import (
     _effective_window,
     _rarity_score,
     _recency_order,
-    _recycle_pool,
     _select_from_observations,
     _weighted_pick,
     scaled_window,
@@ -63,19 +62,23 @@ def test_weighted_pick_is_deterministic():
     assert first["speciesCode"] == second["speciesCode"]
 
 
-def test_recycle_pool_takes_the_oldest_quarter():
-    candidates = [{"speciesCode": c, "total_count": 1} for c in "abcdefgh"]
-    # Recencia: "h" es la más reciente, "a" la más antigua.
-    recency = list("hgfedcba")
-    picked = [c["speciesCode"] for c in _recycle_pool(candidates, recency)]
-    assert picked == ["a", "b"]
+def test_effective_window_never_empties_and_never_drops_below_a_quarter():
+    """The clamp is the valve, so this property must never regress.
 
-
-def test_recycle_pool_puts_never_published_species_first():
-    candidates = [{"speciesCode": c, "total_count": 1} for c in "abcd"]
-    recency = ["a", "b"]  # "c" y "d" no se han publicado nunca
-    picked = [c["speciesCode"] for c in _recycle_pool(candidates, recency)]
-    assert picked == ["c"]
+    Blocking only the most recently published ``effective`` species, with
+    a recency list that covers every one of today's candidates, always
+    leaves at least a quarter of the supply standing. That guarantee is
+    what makes a second, explicit recycling step unnecessary: reintroduce
+    one and this test is the reminder that the branch it feeds is dead.
+    """
+    for supply in (1, 3, 4, 8, 60, 200):
+        codes = [f"sp{i}" for i in range(supply)]
+        recency = list(reversed(codes))  # covers every candidate
+        effective = _effective_window(supply * 100, supply)
+        blocked = set(recency[:effective])
+        remaining = [c for c in codes if c not in blocked]
+        assert len(remaining) > 0
+        assert len(remaining) >= math.ceil(supply / 4)
 
 
 def _obs(code, count=1):
@@ -96,15 +99,16 @@ def test_observations_exclude_the_blocked_window():
     assert result["speciesCode"] == "d"
 
 
-def test_observations_recycle_instead_of_giving_up():
+def test_observations_note_the_republication_instead_of_giving_up():
     observations = [_obs("a"), _obs("b"), _obs("c"), _obs("d")]
     notes = []
     result = _select_from_observations(
         observations, ["d", "c", "b", "a"], 99, "2026-04-13", "madrid",
         notes=notes,
     )
+    # Never a rescue: the pick still comes from this pool's own species.
     assert result["speciesCode"] in {"a", "b", "c", "d"}
-    assert any("recycl" in note for note in notes)
+    assert any("no unpublished species left" in note for note in notes)
 
 
 def test_observations_note_the_clamp():

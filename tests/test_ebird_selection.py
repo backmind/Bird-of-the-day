@@ -103,7 +103,7 @@ def test_select_species_honours_exclude(monkeypatch):
     assert result["speciesCode"] == "b"
 
 
-def test_select_species_recycles_inside_the_pool(monkeypatch):
+def test_select_species_republishes_inside_the_pool(monkeypatch):
     """Un pool agotado devuelve una suya, no un ave global cualquiera."""
     _patch_region(monkeypatch, [_obs("a"), _obs("b")])
     monkeypatch.setattr(
@@ -113,7 +113,7 @@ def test_select_species_recycles_inside_the_pool(monkeypatch):
     notes = []
     result = select_species(CONFIG, ["a", "b"] * 40, "2026-04-13", notes=notes)
     assert result["speciesCode"] in {"a", "b"}
-    assert any("recycling" in note for note in notes)
+    assert any("no unpublished species left" in note for note in notes)
 
 
 def test_select_species_is_deterministic(monkeypatch):

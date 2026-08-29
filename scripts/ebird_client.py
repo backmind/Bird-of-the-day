@@ -272,7 +272,6 @@ def _date_seed(date_str: str, salt: str = "") -> int:
 
 
 WINDOW_SUPPLY_FRACTION = 0.75
-VALVE_QUARTILE = 4
 
 
 def _note(notes: list[str] | None, message: str) -> None:
@@ -292,10 +291,10 @@ def _recency_order(published_codes: list[str]) -> list[str]:
 
     ``published_codes`` arrives oldest first, repeats included, exactly as
     history stores it. Walking it backwards and keeping each code's first
-    sighting gives the one ordering both the dedup window and the
-    recycling valve need. A species never published is absent from the
-    result: it is infinitely old, so it is always eligible and always
-    ahead of anything that has been published.
+    sighting gives the one ordering the dedup window and its clamp need.
+    A species never published is absent from the result: it is infinitely
+    old, so it is always eligible and always ahead of anything that has
+    been published.
     """
     seen: set[str] = set()
     order: list[str] = []
@@ -344,25 +343,6 @@ def _weighted_pick(candidates: list[dict], date_str: str, salt: str) -> dict:
     scores = [_rarity_score(c.get("total_count", 1)) for c in candidates]
     rng = random.Random(_date_seed(date_str, salt=salt))
     return rng.choices(candidates, weights=scores, k=1)[0]
-
-
-def _recycle_pool(candidates: list[dict], recency: list[str]) -> list[dict]:
-    """The least recently published quarter of the candidates.
-
-    A strict "oldest first" rule would turn an exhausted pool into a
-    carousel: today's pick becomes the most recent, tomorrow's is the next
-    one in the queue, and the order never changes again. Handing a whole
-    quartile to the usual weighted draw keeps "what has been away longest
-    comes back" without fixing the order.
-    """
-    rank = {code: i for i, code in enumerate(recency)}
-    unpublished = len(recency)
-    ordered = sorted(
-        candidates,
-        key=lambda c: (-rank.get(c["speciesCode"], unpublished), c["speciesCode"]),
-    )
-    size = max(1, -(-len(ordered) // VALVE_QUARTILE))
-    return ordered[:size]
 
 
 def _pick_pool(pools: list[dict], date_str: str) -> dict:
@@ -424,25 +404,25 @@ def _select_from_observations(
             f"pool {pool_id} offers {supply} species today",
         )
 
-    # The clamp above guarantees a candidate survives whenever it actually
-    # bites (WINDOW_SUPPLY_FRACTION and VALVE_QUARTILE are complementary
-    # fractions on purpose), so "no candidates left after the clamp" can
-    # never happen. What decides whether this pool is actually exhausted
-    # is the unclamped window: if the raw dedup window would have blocked
-    # every species this pool offers today, recycle its oldest quarter
-    # instead of drawing from the clamp's leftover in silence.
+    # Blocking only the most recently published `effective` species, where
+    # `effective <= WINDOW_SUPPLY_FRACTION * supply`, always leaves the
+    # least recently published quarter (or more) standing, never-published
+    # species among them first. That is the valve: there is no second path
+    # to fall back to, because the clamp already is one.
+    blocked = set(recency[:effective])
+    candidates = [c for c in species_map.values() if c["speciesCode"] not in blocked]
+
+    # Exhaustion is a pure diagnostic here, not a branch: it flags the rare
+    # case where the raw, unclamped window would have blocked every species
+    # this pool offers today, meaning today's pick is a republication. It
+    # changes nothing about which candidates are eligible.
     raw_blocked = set(recency[:window])
-    exhausted = all(code in raw_blocked for code in species_map)
-    if exhausted:
-        candidates = _recycle_pool(list(species_map.values()), recency)
+    if all(code in raw_blocked for code in species_map):
         _note(
             notes,
             f"pool {pool_id} has no unpublished species left; "
-            f"recycling among its {len(candidates)} least recently published",
+            f"today's pick is a republication",
         )
-    else:
-        blocked = set(recency[:effective])
-        candidates = [c for c in species_map.values() if c["speciesCode"] not in blocked]
 
     selected = _weighted_pick(candidates, date_str, pool_id)
     return {
@@ -460,12 +440,12 @@ def _select_from_taxonomy(
     exclude: frozenset[str] = frozenset(),
     notes: list[str] | None = None,
 ) -> dict | None:
-    """Pick from the world list under the same window and valve rules.
+    """Pick from the world list under the same clamped window as a pool.
 
     Every species weighs the same here: the world list carries no counts,
     so there is no rarity to bias towards. With eleven thousand species
-    the clamp never binds and the valve never fires, but both stay wired
-    so this pool cannot quietly develop rules of its own.
+    the clamp never binds in practice, but it stays wired so this pool
+    cannot quietly develop rules of its own.
     """
     candidates = [
         {
@@ -483,12 +463,13 @@ def _select_from_taxonomy(
     effective = _effective_window(window, len(candidates))
     blocked = set(recency[:effective])
     eligible = [c for c in candidates if c["speciesCode"] not in blocked]
-    if not eligible:
-        eligible = _recycle_pool(candidates, recency)
+
+    raw_blocked = set(recency[:window])
+    if all(c["speciesCode"] in raw_blocked for c in candidates):
         _note(
             notes,
-            f"the world list has no unpublished species left; "
-            f"recycling among its {len(eligible)} least recently published",
+            "the world list has no unpublished species left; "
+            "today's pick is a republication",
         )
 
     selected = _weighted_pick(eligible, date_str, "global")
@@ -573,14 +554,14 @@ def select_species(
     derived from it: which species the dedup window blocks, and how long
     each has been away when the pool runs out and one has to come back.
 
-    ``exclude`` is rejected outright, before the window and the valve. It
+    ``exclude`` is rejected outright, before the window and the clamp. It
     carries the codes a skip-policy re-roll has already tried today.
 
-    Picks one weighted pool by date hash and queries it. The pool now
-    recycles its own least recently published species rather than come up
-    empty, so the single global-taxonomy rescue below is left for the
-    cases it was really meant for: a network error, or a region that
-    answered with nothing at all.
+    Picks one weighted pool by date hash and queries it. The clamp keeps
+    the pool's own least recently published quarter eligible rather than
+    let it come up empty, so the single global-taxonomy rescue below is
+    left for the cases it was really meant for: a network error, or a
+    region that answered with nothing at all.
     """
     pools = config["pools"]
     back = config.get("back_days", 14)
