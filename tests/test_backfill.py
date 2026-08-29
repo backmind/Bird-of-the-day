@@ -134,3 +134,64 @@ class TestGbifBackfill:
         with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
             actions = _run(_history(("aaa", "2026-01-01")), tmp_path, limit=0)
         assert actions == []
+
+    def test_gbif_consumes_last_slot_before_enrichment(self, tmp_path):
+        _write_content(
+            tmp_path, "aaa", gbif_taxon_key=None,
+            distribution_map_url="", gbif_match=MATCH_ERROR,
+        )
+        with patch("scripts.backfill.distribution_map.gbif_taxon_match_ex",
+                   return_value=(42, MATCH_OK)):
+            with patch("scripts.backfill.distribution_map.fetch_iucn_category",
+                       return_value=("LC", "LEAST_CONCERN", "http://bl")):
+                with patch("scripts.backfill.llm_enricher.enrich_species") as enrich:
+                    with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                        actions = _run(
+                            _history(("aaa", "2026-01-01")), tmp_path, limit=1
+                        )
+        assert [(a.kind, a.ok) for a in actions] == [("gbif", True)]
+        assert enrich.call_count == 0
+
+    def test_gbif_failure_persists_state(self, tmp_path):
+        _write_content(
+            tmp_path, "aaa", gbif_taxon_key=None,
+            distribution_map_url="", gbif_match=MATCH_ERROR,
+        )
+        _write_enrichment(tmp_path, "aaa")
+        with patch("scripts.backfill.distribution_map.gbif_taxon_match_ex",
+                   return_value=(None, MATCH_ERROR)):
+            with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                actions = _run(_history(("aaa", "2026-01-01")), tmp_path)
+        assert [(a.kind, a.ok) for a in actions] == [("gbif", False)]
+        data = json.loads((tmp_path / "aaa.json").read_text(encoding="utf-8"))
+        assert data["gbif_match"] == "error"
+        assert data["gbif_taxon_key"] is None
+
+    def test_legacy_empty_state_retries(self, tmp_path):
+        _write_content(
+            tmp_path, "aaa", gbif_taxon_key=None,
+            distribution_map_url="", gbif_match="",
+        )
+        _write_enrichment(tmp_path, "aaa")
+        with patch("scripts.backfill.distribution_map.gbif_taxon_match_ex",
+                   return_value=(42, MATCH_OK)) as m:
+            with patch("scripts.backfill.distribution_map.fetch_iucn_category",
+                       return_value=("LC", "LEAST_CONCERN", "http://bl")):
+                with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                    _run(_history(("aaa", "2026-01-01")), tmp_path)
+        assert m.call_count == 1
+
+    def test_empty_sciname_skips_gbif(self, tmp_path):
+        _write_content(
+            tmp_path, "aaa", gbif_taxon_key=None, gbif_match=MATCH_ERROR,
+        )
+        _write_enrichment(tmp_path, "aaa")
+        history = {"entries": [
+            {"speciesCode": "aaa", "comName": "AAA", "sciName": "",
+             "date": "2026-01-01"},
+        ]}
+        with patch("scripts.backfill.distribution_map.gbif_taxon_match_ex") as m:
+            with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                actions = _run(history, tmp_path)
+        assert actions == []
+        assert m.call_count == 0

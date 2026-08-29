@@ -12,6 +12,9 @@ Healable states:
   no recorded state): the taxon lookup failed transiently and was never
   retried. An authoritative ``MATCH_NONE`` is never retried.
 
+There is no per-species retry budget: an entry that keeps failing is
+retried again on every run, spending at most one of that run's slots.
+
 The caller rebuilds feed and site when any action succeeded, so healed
 content reaches readers the same day.
 """
@@ -21,6 +24,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+import requests
 
 from scripts import content_scraper, distribution_map, llm_enricher
 
@@ -45,12 +50,15 @@ def run_backfill(
     english_name_index: dict,
     code_to_localized: dict,
     limit: int,
+    session: requests.Session | None = None,
 ) -> list[BackfillAction]:
     """Retry failed enrichments and GBIF lookups for past entries.
 
     Walks history newest first, deduplicated by species code. Every
     attempt (successful or not) counts against ``limit`` so a persistent
-    outage doesn't hammer the endpoints on every run.
+    outage doesn't hammer the endpoints on every run. ``session``, when
+    given, is reused for GBIF requests so retry/backoff and connection
+    pooling apply.
     """
     actions: list[BackfillAction] = []
     if limit <= 0:
@@ -72,19 +80,22 @@ def run_backfill(
             continue
 
         # GBIF: retry transient failures (explicit error state, or a
-        # legacy cache with no key and no recorded state).
+        # legacy cache with no key and no recorded state). An empty
+        # sciName can't be looked up; skip without touching state so it
+        # doesn't get permanently marked as an error.
+        sci_name = entry.get("sciName", "")
         needs_gbif = content.gbif_taxon_key is None and (
             content.gbif_match != distribution_map.MATCH_NONE
         )
-        if needs_gbif:
+        if needs_gbif and sci_name:
             key, state = distribution_map.gbif_taxon_match_ex(
-                entry.get("sciName", "")
+                sci_name, session=session
             )
             content.gbif_match = state
             if key is not None:
                 content.gbif_taxon_key = key
                 content.distribution_map_url = distribution_map.gbif_map_url(key)
-                iucn = distribution_map.fetch_iucn_category(key)
+                iucn = distribution_map.fetch_iucn_category(key, session=session)
                 if iucn is not None:
                     content.iucn_code, _, content.iucn_birdlife_url = iucn
             content_scraper.save_cached_content(code, content, cache_dir)
