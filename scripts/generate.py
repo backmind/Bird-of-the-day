@@ -566,11 +566,12 @@ def _report_feed(feed_result: dict, report: run_report.RunReport) -> None:
 
 def _select_and_fetch(
     config: dict,
-    history_codes: list[str],
+    history_entries: list[dict],
     date_str: str,
     catalog: i18n.Catalog,
     ebird_locale: str,
     description_policy: str,
+    notes: list[str] | None = None,
 ) -> tuple[dict, image_fetcher.ImageResult, content_scraper.SpeciesContent]:
     """Run the species selection loop with image + content fetching.
 
@@ -578,9 +579,17 @@ def _select_and_fetch(
     we re-roll up to ``max_skip_retries`` times until a species with text
     in the configured language is found.
 
+    ``history_entries`` is the whole history, which the selection reads as
+    a recency ordering and the image fetch reads to avoid repeating a
+    photograph. ``notes`` collects the selection diagnostics the run
+    report prints.
+
     Returns ``(species_dict, image_result, content_result)``.
     """
     max_skip = int(config.get("max_skip_retries", 50))
+    published_codes = [
+        e["speciesCode"] for e in history_entries if e.get("speciesCode")
+    ]
     session = image_fetcher.new_session(
         accept_language=catalog.accept_language_header
     )
@@ -591,7 +600,8 @@ def _select_and_fetch(
     for attempt in range(max_skip + 1):
         logger.info("Selecting bird of the day for %s", date_str)
         species = ebird_client.select_species(
-            config, history_codes + tried_codes, date_str, cache_dir=CACHE_DIR,
+            config, published_codes, date_str, cache_dir=CACHE_DIR,
+            exclude=frozenset(tried_codes), notes=notes,
         )
         species_code = species["speciesCode"]
         logger.info(
@@ -821,17 +831,17 @@ def main() -> None:
             return
 
         # 1. Select species, fetch image + content.
-        dedup_window = config.get("dedup_window", config.get("max_history", 50))
-        history_codes = [e["speciesCode"] for e in history["entries"][-dedup_window:]]
-
+        selection_notes: list[str] = []
         species, image, content = _select_and_fetch(
-            config, history_codes, date_str, catalog, ebird_locale,
-            description_policy,
+            config, history["entries"], date_str, catalog, ebird_locale,
+            description_policy, notes=selection_notes,
         )
         species_code = species["speciesCode"]
         common_name = species["comName"]
         scientific_name = species["sciName"]
         report.info(f"species: {common_name} ({scientific_name}) [{species_code}]")
+        for note in selection_notes:
+            report.info(note)
 
         # 2. LLM enrichment: always attempted when an LLM is configured.
         if llm_enricher.is_configured(config):
