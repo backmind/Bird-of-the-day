@@ -764,15 +764,15 @@ def main() -> None:
             # covers english_name_index, the linker's other input: an
             # outage there is just as silent and just as wide.
             if rebuilding:
-                composed_paths, feed_result = _rebuild_feed(
-                    history, config, catalog, description_policy,
-                    english_name_index, code_to_localized,
-                    published_anchors_abs, now,
-                    state_dir=STATE_DIR,
-                    thaw=_healed_guids(healed, history),
-                )
-                _report_missing_maps(history, composed_paths, report)
-                _report_feed(feed_result, report)
+                # Site first, feeds second, on both paths. The state
+                # directory is served live, and every feed item links a
+                # species page: writing the feed first opens a window
+                # where the newest item points at a page that does not
+                # exist yet, and a crash inside that window leaves the
+                # link 404 until the next tick. write_site depends on
+                # nothing _rebuild_feed produces (the plates hot-link
+                # GBIF and the committed basemap, never the composed
+                # PNGs), so the swap is free. Report order is unchanged.
                 site_entries = _build_site_entries(
                     history, description_policy=description_policy
                 )
@@ -786,6 +786,15 @@ def main() -> None:
                     published_anchors=published_anchors,
                     full_feed=full_feed,
                 )
+                composed_paths, feed_result = _rebuild_feed(
+                    history, config, catalog, description_policy,
+                    english_name_index, code_to_localized,
+                    published_anchors_abs, now,
+                    state_dir=STATE_DIR,
+                    thaw=_healed_guids(healed, history),
+                )
+                _report_missing_maps(history, composed_paths, report)
+                _report_feed(feed_result, report)
                 report.info(
                     f"site: {site_result['written']} of {site_result['pages']} pages "
                     f"written, {site_result['unchanged']} unchanged"
@@ -884,17 +893,9 @@ def main() -> None:
             _build_indexes(history, feed_link, ebird_locale)
         )
 
-        # 5. Rebuild the RSS feeds.
-        composed_paths, feed_result = _rebuild_feed(
-            history, config, catalog, description_policy,
-            english_name_index, code_to_localized, published_anchors_abs, now,
-            state_dir=STATE_DIR,
-            thaw=_healed_guids(healed, history),
-        )
-        _report_missing_maps(history, composed_paths, report)
-        _report_feed(feed_result, report)
-
-        # 6. Generate the static site.
+        # 5. Generate the static site. It goes before the feeds for the
+        # reason given on the other path: the newest item's link has to
+        # resolve the moment the feed carrying it is published.
         site_entries = _build_site_entries(history, description_policy=description_policy)
         site_result = archive_builder.write_site(
             site_entries,
@@ -906,6 +907,16 @@ def main() -> None:
             published_anchors=published_anchors,
             full_feed=full_feed,
         )
+
+        # 6. Rebuild the RSS feeds.
+        composed_paths, feed_result = _rebuild_feed(
+            history, config, catalog, description_policy,
+            english_name_index, code_to_localized, published_anchors_abs, now,
+            state_dir=STATE_DIR,
+            thaw=_healed_guids(healed, history),
+        )
+        _report_missing_maps(history, composed_paths, report)
+        _report_feed(feed_result, report)
         report.info(
             f"site: {site_result['written']} of {site_result['pages']} pages "
             f"written, {site_result['unchanged']} unchanged"
