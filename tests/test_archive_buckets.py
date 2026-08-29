@@ -77,6 +77,23 @@ def test_edge_months_omit_the_missing_direction(ctx, entries):
     assert "archive-2026-09.html" not in html
 
 
+def test_oldest_month_omits_the_older_link(ctx, entries):
+    html = archive_builder.build_month_bucket("2026-06", entries[3:4], ctx, newer_month="2026-07")
+    assert 'href="archive-2026-07.html"' in html
+    assert "archive-2026-05.html" not in html
+    assert "page-nav-older" not in html
+
+
+def test_bucket_never_caps_a_months_entries(ctx):
+    # The bug this plan removes: archive.html used to hard-cap at 90 and
+    # silently drop the rest. A month bucket must render every plate it
+    # is given, however many there are.
+    big_month = [_entry(f"sp{i:03d}", "2026-08-15", i) for i in range(1, 121)]
+    html = archive_builder.build_month_bucket("2026-08", big_month, ctx)
+    for entry in big_month:
+        assert f'id="{entry.anchor}"' in html
+
+
 def test_bucket_is_a_full_page(ctx, entries):
     html = archive_builder.build_month_bucket("2026-08", entries[:2], ctx)
     assert html.startswith("<!DOCTYPE html>")
