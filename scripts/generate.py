@@ -29,6 +29,7 @@ from scripts import (
     image_fetcher,
     llm_enricher,
     map_composer,
+    run_report,
     site_builder,
 )
 
@@ -530,6 +531,7 @@ def main() -> None:
     history = load_history()
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%Y-%m-%d")
+    report = run_report.RunReport()
 
     catalog = i18n.Catalog.load(config["language"])
 
@@ -570,12 +572,18 @@ def main() -> None:
                 "maintenance skipped: taxonomy or network unavailable",
                 exc_info=True,
             )
+            report.warn("maintenance skipped: taxonomy or network unavailable")
             code_to_localized = {}
             published_anchors = {}
             published_anchors_abs = {}
             actions = []
 
         healed = [a for a in actions if a.ok]
+        for action in actions:
+            if action.ok:
+                report.info(f"backfill healed {action.kind} for {action.species_code}")
+            else:
+                report.warn(f"backfill {action.kind} for {action.species_code} failed")
 
         # Idempotency: today's entry is already published. Republish only
         # when backfill actually changed something.
@@ -605,6 +613,11 @@ def main() -> None:
                 )
             else:
                 logger.info("Already generated for %s, skipping", date_str)
+            report.info(
+                f"already published for {date_str}"
+                + (", outputs rebuilt after healing" if healed else "")
+            )
+            report.emit()
             return
 
         # 1. Select species, fetch image + content.
@@ -618,6 +631,7 @@ def main() -> None:
         species_code = species["speciesCode"]
         common_name = species["comName"]
         scientific_name = species["sciName"]
+        report.info(f"species: {common_name} ({scientific_name}) [{species_code}]")
 
         # 2. LLM enrichment: always attempted when an LLM is configured.
         if llm_enricher.is_configured(config):
@@ -636,11 +650,18 @@ def main() -> None:
                     )
             if enriched:
                 logger.info("Using enriched content for %s", species_code)
+                report.info("content: enriched")
             else:
                 logger.warning(
                     "LLM enrichment failed for %s, falling back to programmatic",
                     species_code,
                 )
+                report.warn(
+                    f"LLM enrichment failed for {species_code}, "
+                    "published programmatic fallback"
+                )
+        else:
+            report.info("content: programmatic (no LLM configured)")
 
         # 3. Apply description policy.
         effective_description, effective_source = _apply_description_policy(
@@ -651,6 +672,7 @@ def main() -> None:
                 "foreign_fallback: using rejected %s text for %s",
                 content.fallback_language, species_code,
             )
+            report.warn(f"foreign-language description published for {species_code}")
 
         # 3. Update history.
         history["entries"].append(
@@ -690,9 +712,11 @@ def main() -> None:
         )
 
         logger.info("Done. Today's bird: %s (%s)", common_name, scientific_name)
+        report.emit()
 
     except Exception:
         logger.exception("Failed to generate bird of the day")
+        report.emit()
         sys.exit(1)
 
 
