@@ -517,15 +517,20 @@ def _select_from_taxonomy(
             "total_count": 1,
         }
         for sp in taxonomy
-        if sp.get("speciesCode") and sp["speciesCode"] not in exclude
+        if sp.get("speciesCode")
     ]
     if not candidates:
         return None
 
+    # `exclude` goes to the helper rather than being folded in above, for
+    # the same reason it does on the observations path: it must not change
+    # the measured supply, and therefore must not move the clamp.
     selected = _clamp_and_pick(
         candidates, recency, window, date_str,
-        salt="global", label="the world list", notes=notes,
+        salt="global", label="the world list", exclude=exclude, notes=notes,
     )
+    if selected is None:
+        return None
     return {
         "speciesCode": selected["speciesCode"],
         "comName": selected["comName"],
