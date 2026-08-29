@@ -327,6 +327,7 @@ def write_site(
     english_name_index: dict | None = None,
     code_to_localized: dict | None = None,
     published_anchors: dict | None = None,
+    full_feed: bool = False,
 ) -> dict[str, int]:
     """Render every page and write the ones whose content changed.
 
@@ -334,6 +335,10 @@ def write_site(
     the whole site costs milliseconds, so there is no incremental mode to
     keep in sync: correctness comes from always rendering everything,
     small diffs come from only writing what differs.
+
+    ``full_feed`` says whether ``feed-full.xml`` is published, and must
+    match what :func:`feed_builder.write_feeds` decided for the same run:
+    it is the flag the pages use to decide whether to link that file.
     """
     ctx = RenderContext(
         catalog=catalog,
@@ -341,6 +346,7 @@ def write_site(
         english_name_index=english_name_index or {},
         code_to_localized=code_to_localized or {},
         published_anchors=published_anchors or {},
+        full_feed=full_feed,
     )
     output_dir = Path(output_dir)
     assets_dir = output_dir / "assets"

@@ -42,6 +42,12 @@ fully re-rendered every run; `feed-full.xml` carries everything and
 reuses the bodies it already published, so it grows by one item a day
 instead of being rewritten.
 
+With `max_feed_entries` at `0` there is no cap, `feed.xml` already holds
+the whole history, and `feed-full.xml` is not written: a second file
+would be a byte-for-byte duplicate. The pages follow the same rule and
+only link `feed-full.xml` when it is published, so no page ever
+advertises a file that is not there.
+
 Everything is server-rendered HTML — no JavaScript framework, no build
 step. Two small pieces of vanilla JS are inlined: a theme switcher that
 persists light/dark preference in `localStorage`, and, on `archive.html`

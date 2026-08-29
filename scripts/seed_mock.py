@@ -351,6 +351,7 @@ def main() -> None:
         STATE_DIR,
         catalog=catalog,
         feed_link=config.get("feed_link", ""),
+        full_feed=int(config.get("max_feed_entries", 0) or 0) > 0,
     )
 
     logger.info("DONE.")

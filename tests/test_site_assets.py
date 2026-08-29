@@ -30,23 +30,57 @@ class TestWriteSiteAssets:
 
 
 class TestFeedDiscovery:
-    def _page(self, prefix: str = "") -> str:
-        ctx = site_builder.RenderContext(
-            catalog=_catalog(), feed_link="", path_prefix=prefix
+    """The pages may only advertise files the run actually publishes.
+
+    ``feed-full.xml`` exists only when a cap applies, so every assertion
+    here is paired: what the page says with the flag on, and what it must
+    not say with it off.
+    """
+
+    def _ctx(self, prefix: str = "", full_feed: bool = True):
+        return site_builder.RenderContext(
+            catalog=_catalog(),
+            feed_link="",
+            path_prefix=prefix,
+            full_feed=full_feed,
         )
-        return site_builder.render_page("Title", "<p>body</p>", ctx, active="home")
+
+    def _page(self, prefix: str = "", full_feed: bool = True) -> str:
+        return site_builder.render_page(
+            "Title", "<p>body</p>", self._ctx(prefix, full_feed), active="home"
+        )
 
     def test_both_feeds_are_announced(self):
-        html = self._page()
+        html = self._page(full_feed=True)
         assert 'href="feed.xml"' in html
         assert 'href="feed-full.xml"' in html
 
     def test_species_pages_reach_the_feeds_from_their_subdirectory(self):
-        html = self._page(prefix="../")
+        html = self._page(prefix="../", full_feed=True)
         assert 'href="../feed.xml"' in html
         assert 'href="../feed-full.xml"' in html
 
     def test_subscribe_card_offers_the_full_history(self):
-        ctx = site_builder.RenderContext(catalog=_catalog(), feed_link="")
-        html = site_builder.render_subscribe(ctx)
+        html = site_builder.render_subscribe(self._ctx(full_feed=True))
         assert 'href="feed-full.xml"' in html
+
+    def test_head_never_announces_an_unwritten_full_feed(self):
+        html = self._page(full_feed=False)
+        assert 'href="feed.xml"' in html
+        assert "feed-full.xml" not in html
+
+    def test_subscribe_card_stays_quiet_without_a_full_feed(self):
+        html = site_builder.render_subscribe(self._ctx(full_feed=False))
+        assert "feed-full.xml" not in html
+        assert _catalog().t("subscribe.full_feed") not in html
+
+    def test_species_page_context_keeps_the_flag(self):
+        # for_subdirectory derives the species-page context. A dropped
+        # field here would silently unlink the full feed on every one of
+        # them while the root pages still advertised it.
+        derived = site_builder.for_subdirectory(self._ctx(full_feed=True), "../")
+        assert derived.full_feed is True
+        html = site_builder.render_page(
+            "Title", "<p>body</p>", derived, active="home"
+        )
+        assert 'href="../feed-full.xml"' in html
