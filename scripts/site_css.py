@@ -1028,4 +1028,14 @@ footer.site a { color: var(--ink-soft); }
 .month-list a { color: var(--ink); text-decoration: none; }
 .month-list a:hover { color: var(--accent); }
 .month-list .count { color: var(--ink-faint); }
+
+/* ─── species page ─────────────────────────────────────────────────
+   One canonical page per bird; the list of dates is its provenance.     */
+.species-history { max-width: var(--max); margin: 2rem auto; padding: 0 1.25rem; }
+.species-history h2 { font-size: 1.05rem; margin: 0 0 0.5rem; }
+.species-history ul { list-style: none; margin: 0; padding: 0; }
+.species-history li { padding: 0.35rem 0; border-bottom: 1px dotted var(--rule); }
+.species-history a { color: var(--ink); text-decoration: none; }
+.species-history a:hover { color: var(--accent); }
+.species-history .glyph { color: var(--ink-faint); }
 """.strip()

@@ -149,6 +149,96 @@ def build_archive_front(entries: list[SiteEntry], ctx: RenderContext) -> str:
     )
 
 
+def group_by_species(entries: list[SiteEntry]) -> dict[str, list[SiteEntry]]:
+    """Map species code to its publications, newest first.
+
+    Species order follows the most recent publication, because
+    ``entries`` arrives newest first.
+    """
+    grouped: dict[str, list[SiteEntry]] = {}
+    for entry in entries:
+        grouped.setdefault(entry.species_code, []).append(entry)
+    return grouped
+
+
+def _plate_nav(
+    ctx: RenderContext,
+    *,
+    older: SiteEntry | None = None,
+    newer: SiteEntry | None = None,
+) -> str:
+    t = ctx.catalog.t
+    parts = []
+    if older is not None:
+        parts.append(
+            f'<a class="page-nav-older" '
+            f'href="{_esc(ctx.u(older.species_url))}">'
+            f'{_esc(t("nav.older_plate"))}: {_esc(older.common_name)}</a>'
+        )
+    parts.append(
+        f'<a class="page-nav-up" href="{_esc(ctx.u(urls.ARCHIVE_FRONT))}">'
+        f'{_esc(t("nav.back_to_archive"))}</a>'
+    )
+    if newer is not None:
+        parts.append(
+            f'<a class="page-nav-newer" '
+            f'href="{_esc(ctx.u(newer.species_url))}">'
+            f'{_esc(t("nav.newer_plate"))}: {_esc(newer.common_name)}</a>'
+        )
+    return (
+        f'<nav class="page-nav" aria-label="{_esc(t("nav.pagination_aria"))}">'
+        f'{"".join(parts)}</nav>'
+    )
+
+
+def _publication_history(publications: list[SiteEntry], ctx: RenderContext) -> str:
+    t = ctx.catalog.t
+    # ``archive_url`` is the entry's own permalink (its month bucket plus
+    # anchor), so the history delegates to it instead of rebuilding the URL.
+    rows = "".join(
+        f"<li>"
+        f'<a href="{_esc(ctx.u(p.archive_url))}">'
+        f'<span class="glyph">&#8470;</span>&nbsp;{p.number} · '
+        f"{_esc(p.date_dotted)}</a>"
+        f"</li>"
+        for p in publications
+    )
+    return (
+        f'<section class="species-history" aria-labelledby="species-history-title">'
+        f'<h2 id="species-history-title">{_esc(t("species.history_heading"))}</h2>'
+        f"<ul>{rows}</ul>"
+        f"</section>"
+    )
+
+
+def build_species_page(
+    publications: list[SiteEntry],
+    ctx: RenderContext,
+    *,
+    older: SiteEntry | None = None,
+    newer: SiteEntry | None = None,
+) -> str:
+    """Render ``birds/{code}.html``: the canonical page for one species.
+
+    ``publications`` is newest first; the most recent one supplies the
+    plate, the rest become the publication history. ``ctx`` must already
+    be a subdirectory context (see :func:`site_builder.for_subdirectory`).
+    """
+    latest = publications[0]
+    body_parts = [
+        site_builder.render_plate(latest, ctx, hero=True),
+        _publication_history(publications, ctx),
+        _plate_nav(ctx, older=older, newer=newer),
+        site_builder.render_subscribe(ctx),
+    ]
+    title = ctx.catalog.t(
+        "page.species_title_template", name=latest.common_name
+    )
+    return site_builder.render_page(
+        title, "\n".join(body_parts), ctx, active="archive"
+    )
+
+
 def build_month_bucket(
     month: str,
     entries: list[SiteEntry],
