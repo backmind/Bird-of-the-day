@@ -52,6 +52,11 @@ class TestMatchEx:
         key, state = gbif_taxon_match_ex("")
         assert (key, state) == (None, MATCH_NONE)
 
+    def test_malformed_payload_is_transient(self):
+        sess = _session_returning(["not", "a", "dict"])
+        key, state = gbif_taxon_match_ex("Parus major", session=sess)
+        assert (key, state) == (None, MATCH_ERROR)
+
 
 class TestFetchDistributionEx:
     def test_success_builds_map_url(self):

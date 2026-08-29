@@ -63,26 +63,30 @@ def gbif_taxon_match_ex(
         )
         resp.raise_for_status()
         data = resp.json()
-    except (requests.RequestException, ValueError):
+
+        match_type = data.get("matchType", "")
+        confidence = int(data.get("confidence", 0))
+        # Reject NONE matches and very low-confidence guesses; accept
+        # EXACT, FUZZY, and HIGHERRANK as long as confidence is reasonable.
+        if match_type == "NONE" or confidence < 80:
+            logger.info(
+                "GBIF match for %r rejected: matchType=%s confidence=%d",
+                scientific_name, match_type, confidence,
+            )
+            return None, MATCH_NONE
+
+        # Prefer ``usageKey`` (which follows synonym redirects) over
+        # ``speciesKey``. Both should usually agree for accepted names.
+        key = data.get("usageKey") or data.get("speciesKey")
+    except (requests.RequestException, ValueError, TypeError, AttributeError):
+        # A non-dict JSON body (list, scalar) or an unparseable field
+        # reaches here too: treat it as transient, same as a network
+        # error, rather than letting it escape as an unhandled exception.
         logger.debug(
             "GBIF taxon match errored for %s", scientific_name, exc_info=True
         )
         return None, MATCH_ERROR
 
-    match_type = data.get("matchType", "")
-    confidence = int(data.get("confidence", 0))
-    # Reject NONE matches and very low-confidence guesses; accept
-    # EXACT, FUZZY, and HIGHERRANK as long as confidence is reasonable.
-    if match_type == "NONE" or confidence < 80:
-        logger.info(
-            "GBIF match for %r rejected: matchType=%s confidence=%d",
-            scientific_name, match_type, confidence,
-        )
-        return None, MATCH_NONE
-
-    # Prefer ``usageKey`` (which follows synonym redirects) over
-    # ``speciesKey``. Both should usually agree for accepted names.
-    key = data.get("usageKey") or data.get("speciesKey")
     if not isinstance(key, int) or key <= 0:
         return None, MATCH_NONE
 
