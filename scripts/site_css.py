@@ -976,4 +976,27 @@ footer.site a { color: var(--ink-soft); }
   .atlas-source { font-size: .72rem; }
   .atlas-scale { font-size: .52rem; }
 }
+
+/* ─── pagination ───────────────────────────────────────────────────
+   Month buckets and species pages are separate documents, so every one
+   of them offers a way out.                                              */
+.page-nav {
+  max-width: var(--max);
+  margin: 2.25rem auto;
+  padding: 0 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.5rem;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.92rem;
+}
+.page-nav a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 2px;
+}
+.page-nav a:hover { border-bottom-color: var(--accent); }
+.page-nav .page-nav-up { color: var(--ink-soft); }
 """.strip()
