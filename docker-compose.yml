@@ -25,7 +25,6 @@ services:
       # BOTD_LANGUAGE: en
       # BOTD_DESCRIPTION_POLICY: foreign_fallback
       # BOTD_FEED_LINK: https://example.com/birds/
-      # BOTD_CONTENT_MODE: enriched
       # BOTD_LLM_API_KEY: ${BOTD_LLM_API_KEY:-}
     volumes:
       - botd-data:/var/lib/botd
