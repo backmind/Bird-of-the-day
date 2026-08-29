@@ -22,6 +22,14 @@ HARD_TOLERANCE = 0.10
 IDENT_MIN = 3
 IDENT_MAX = 5
 
+# i18n.matches_language's confidence floor is calibrated for 100-800 char
+# prose. Joined identification bullets are often much shorter (40-70
+# chars), where the constrained en/es/fr/pt pool makes Spanish/Portuguese
+# confusion common enough to burn the corrective retry on already-correct
+# output. Below this length the bullets-language check is skipped
+# entirely; at or above it, a mismatch is only a soft issue.
+BULLETS_LANG_MIN_CHARS = 100
+
 _MARKDOWN_RE = re.compile(r"```|(?:^|\n)#{1,6} |\*\*")
 
 
@@ -84,11 +92,11 @@ def validate_enrichment(
 
     if isinstance(ident, list):
         bullets_text = " ".join(str(b) for b in ident)
-        if len(bullets_text) >= i18n.MIN_TEXT_LENGTH and not i18n.matches_language(
+        if len(bullets_text) >= BULLETS_LANG_MIN_CHARS and not i18n.matches_language(
             bullets_text, language
         ):
-            hard.append(
-                "identification bullets must be written in language "
+            soft.append(
+                "identification bullets may not be written in language "
                 f"'{language}'"
             )
 

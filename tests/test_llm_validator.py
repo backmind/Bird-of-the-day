@@ -87,3 +87,32 @@ class TestSoftIssues:
         hard, soft = validate_enrichment(r, "es")
         assert hard == []
         assert soft != []
+
+    def test_long_wrong_language_bullets_is_soft(self):
+        # Joined bullets >= 100 chars and genuinely classifiable as English:
+        # a language mismatch here is a soft issue, not a hard rejection.
+        r = _valid_result()
+        r["identification"] = [
+            "This bird has a short and sturdy beak used for cracking seeds",
+            "Its back feathers show a warm brown tone across the whole body",
+            "The call is loud, sharp and easy to recognize during flight",
+        ]
+        bullets_text = " ".join(r["identification"])
+        assert len(bullets_text) >= 100
+        hard, soft = validate_enrichment(r, "es")
+        assert hard == []
+        assert any("identification" in s for s in soft)
+
+
+class TestShortBulletsSkipLanguageCheck:
+    def test_short_bullets_no_language_violation(self):
+        # Joined bullets below BULLETS_LANG_MIN_CHARS: langid is noise-prone
+        # at this length (measured false positives against real Spanish),
+        # so the language check is skipped entirely, not just softened.
+        r = _valid_result()
+        r["identification"] = ["Beak", "Wings", "Tail"]
+        bullets_text = " ".join(r["identification"])
+        assert len(bullets_text) < 100
+        hard, soft = validate_enrichment(r, "es")
+        assert hard == []
+        assert soft == []
