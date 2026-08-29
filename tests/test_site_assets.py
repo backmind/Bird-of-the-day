@@ -27,3 +27,26 @@ class TestWriteSiteAssets:
         assert 'src="assets/basemap.png"' in html
         assert "cartocdn" not in html
         assert "OpenStreetMap" in html
+
+
+class TestFeedDiscovery:
+    def _page(self, prefix: str = "") -> str:
+        ctx = site_builder.RenderContext(
+            catalog=_catalog(), feed_link="", path_prefix=prefix
+        )
+        return site_builder.render_page("Title", "<p>body</p>", ctx, active="home")
+
+    def test_both_feeds_are_announced(self):
+        html = self._page()
+        assert 'href="feed.xml"' in html
+        assert 'href="feed-full.xml"' in html
+
+    def test_species_pages_reach_the_feeds_from_their_subdirectory(self):
+        html = self._page(prefix="../")
+        assert 'href="../feed.xml"' in html
+        assert 'href="../feed-full.xml"' in html
+
+    def test_subscribe_card_offers_the_full_history(self):
+        ctx = site_builder.RenderContext(catalog=_catalog(), feed_link="")
+        html = site_builder.render_subscribe(ctx)
+        assert 'href="feed-full.xml"' in html

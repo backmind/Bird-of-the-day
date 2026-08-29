@@ -35,6 +35,12 @@ repository root:
 | `/archive-YYYY-MM.html` | Every plate published that month, with permanent anchors (`#bird-{code}-{date}`) |
 | `/birds/{code}.html` | Canonical page for a species, with its publication history |
 | `/feed.xml` | RSS 2.0 feed with rich `content:encoded` HTML |
+| `/feed-full.xml` | The same feed with the complete history, when a cap is set |
+
+`feed.xml` carries the most recent `max_feed_entries` items and is
+fully re-rendered every run; `feed-full.xml` carries everything and
+reuses the bodies it already published, so it grows by one item a day
+instead of being rewritten.
 
 Everything is server-rendered HTML — no JavaScript framework, no build
 step. Two small pieces of vanilla JS are inlined: a theme switcher that
@@ -174,7 +180,8 @@ Every behavior knob lives here. Annotated example:
     {"id": "global", "weight": 0.15, "type": "global_taxonomy"}
   ],
   "dedup_window": 50,
-  "max_feed_entries": 60,
+  "max_feed_entries": 30,
+  "feed_rebuild_all": false,
   "back_days": 14,
   "backfill_limit": 3,
 
@@ -346,6 +353,7 @@ and overrides it if set:
 | `BOTD_MAX_SKIP_RETRIES` | `max_skip_retries` | `50` |
 | `BOTD_DEDUP_WINDOW` | `dedup_window` | `50` |
 | `BOTD_MAX_FEED_ENTRIES` | `max_feed_entries` | `60` |
+| `BOTD_FEED_REBUILD_ALL` | `feed_rebuild_all` | `1` |
 | `BOTD_BACK_DAYS` | `back_days` | `14` |
 | `BOTD_BACKFILL_LIMIT` | `backfill_limit` | `3` |
 | `BOTD_FEED_LINK` | `feed_link` | `https://example.com/birds/` |
@@ -402,6 +410,7 @@ The single volume at `/var/lib/botd` holds all mutable state:
 ├── assets/              # site.css + basemap.png, written/copied at build time
 ├── birds/               # one canonical page per species ever published
 ├── feed.xml             # the RSS feed
+├── feed-full.xml        # the same feed, whole history
 ├── index.html           # the front page
 ├── archive.html         # the archive front (current month + month directory)
 ├── archive-YYYY-MM.html # one page per calendar month, every plate published in it

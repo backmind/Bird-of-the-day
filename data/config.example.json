@@ -35,8 +35,10 @@
     }
   ],
   "dedup_window": 50,
-  "max_feed_entries": 0,
-  "_max_feed_entries_help": "Maximum entries in feed.xml. 0 = unlimited (full history). Set via BOTD_MAX_FEED_ENTRIES for Docker.",
+  "max_feed_entries": 30,
+  "_max_feed_entries_help": "Entries in feed.xml. 0 = unlimited. With a cap, a second feed-full.xml carries the whole history. Set via BOTD_MAX_FEED_ENTRIES for Docker.",
+  "feed_rebuild_all": false,
+  "_feed_rebuild_all_help": "Re-render every item body in feed-full.xml instead of reusing the published ones. Normally false: the full feed is append-only so its daily diff stays small. Set via BOTD_FEED_REBUILD_ALL.",
   "back_days": 14,
   "backfill_limit": 3,
   "_backfill_limit_help": "Max healing actions (missed enrichments, failed GBIF lookups) retried per run. 0 disables self-healing.",

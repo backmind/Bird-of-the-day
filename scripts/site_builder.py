@@ -152,6 +152,7 @@ def render_subscribe(ctx: RenderContext) -> str:
     """Refined RSS footnote — not a marketing banner."""
     t = ctx.catalog.t
     target = ctx.u(urls.FEED_FILE)
+    full_target = ctx.u(urls.FEED_FULL_FILE)
     return f"""
 <aside class="subscribe" aria-label="{_esc(t("subscribe.aria_label"))}">
   <div class="icon" aria-hidden="true">
@@ -161,7 +162,7 @@ def render_subscribe(ctx: RenderContext) -> str:
   </div>
   <div class="text">
     <p class="title">{_esc(t("subscribe.title"))}</p>
-    <p class="sub">{_esc(t("subscribe.subtitle"))}</p>
+    <p class="sub">{_esc(t("subscribe.subtitle"))} · <a href="{_esc(full_target)}">{_esc(t("subscribe.full_feed"))}</a></p>
   </div>
   <a class="button" href="{_esc(target)}">{_esc(t("subscribe.button"))}</a>
 </aside>
@@ -517,6 +518,7 @@ def render_page(
   <meta name="theme-color" content="#0F1518" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="{_FAVICON_SVG}">
   <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="{_esc(ctx.u(urls.FEED_FILE))}">
+  <link rel="alternate" type="application/rss+xml" title="{_esc(t("feed.full_title_template", title=t("site.title")))}" href="{_esc(ctx.u(urls.FEED_FULL_FILE))}">
   {_THEME_BOOT_SCRIPT}{head_block}
   <link rel="stylesheet" href="{stylesheet_href}">
 </head>

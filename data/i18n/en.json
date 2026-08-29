@@ -20,6 +20,7 @@
   "subscribe.title": "Get it in your RSS reader every morning",
   "subscribe.subtitle": "A new species every day.",
   "subscribe.button": "Subscribe",
+  "subscribe.full_feed": "Full archive",
 
   "section.recent": "Recent birds",
   "section.archive_title": "Archive",
@@ -63,6 +64,7 @@
   "map.alt_template": "World distribution of {scientific_name} according to GBIF",
 
   "feed.title": "Bird of the Day",
+  "feed.full_title_template": "{title} (full archive)",
   "feed.description": "A new bird species every day.",
   "feed.copyright_data_prefix": "Data: eBird/Cornell Lab of Ornithology (ebird.org). Photos: Macaulay Library, © their respective authors. ",
   "feed.copyright_author_template": "Feed © {year} Yass Fuentes, non-commercial project.",

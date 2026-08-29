@@ -20,6 +20,7 @@
   "subscribe.title": "Recevez-le chaque matin dans votre lecteur RSS",
   "subscribe.subtitle": "Une nouvelle espèce chaque jour.",
   "subscribe.button": "S'abonner",
+  "subscribe.full_feed": "Archives complètes",
 
   "section.recent": "Oiseaux récents",
   "section.archive_title": "Archives",
@@ -63,6 +64,7 @@
   "map.alt_template": "Répartition mondiale de {scientific_name} d'après GBIF",
 
   "feed.title": "Oiseau du Jour",
+  "feed.full_title_template": "{title} (archives complètes)",
   "feed.description": "Une nouvelle espèce d'oiseau chaque jour.",
   "feed.copyright_data_prefix": "Données : eBird/Cornell Lab of Ornithology (ebird.org). Photos : Macaulay Library, © leurs auteurs respectifs. ",
   "feed.copyright_author_template": "Flux © {year} Yass Fuentes, projet non commercial.",

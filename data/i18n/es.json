@@ -20,6 +20,7 @@
   "subscribe.title": "Recíbela cada mañana en tu lector RSS",
   "subscribe.subtitle": "Una especie nueva al día.",
   "subscribe.button": "Suscribirse",
+  "subscribe.full_feed": "Histórico completo",
 
   "section.recent": "Aves recientes",
   "section.archive_title": "Archivo",
@@ -63,6 +64,7 @@
   "map.alt_template": "Distribución mundial de {scientific_name} según GBIF",
 
   "feed.title": "Ave del Día",
+  "feed.full_title_template": "{title} (histórico completo)",
   "feed.description": "Cada día, una nueva especie de ave.",
   "feed.copyright_data_prefix": "Datos: eBird/Cornell Lab of Ornithology (ebird.org). Fotos: Macaulay Library, © sus respectivos autores. ",
   "feed.copyright_author_template": "Feed © {year} Yass Fuentes, proyecto no comercial.",
