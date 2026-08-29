@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -40,6 +40,28 @@ class RenderContext:
     english_name_index: dict = field(default_factory=dict)
     code_to_localized: dict = field(default_factory=dict)
     published_anchors: dict = field(default_factory=dict)
+    path_prefix: str = ""
+
+    def u(self, path: str) -> str:
+        """Resolve a root-relative site path from this page's location."""
+        return f"{self.path_prefix}{path}"
+
+
+def for_subdirectory(ctx: RenderContext, prefix: str) -> RenderContext:
+    """Context for a page that lives below the site root.
+
+    The name-linker catalog holds root-relative targets, so it is
+    rewritten with the same prefix: seen from ``birds/x.html``, the link
+    to another species page is ``../birds/y.html``. Absolute targets (the
+    feed passes those through the same catalog) are left untouched.
+    """
+    prefixed = {
+        code: target
+        if target.startswith(("http://", "https://", "/"))
+        else f"{prefix}{target}"
+        for code, target in ctx.published_anchors.items()
+    }
+    return replace(ctx, path_prefix=prefix, published_anchors=prefixed)
 
 
 @dataclass
@@ -107,12 +129,12 @@ def _render_header(ctx: RenderContext, active: str) -> str:
   <div class="inner">
     <div class="brand">
       <span class="eyebrow">{_esc(t("site.eyebrow"))}</span>
-      <h1><a href="index.html">{_esc(t("site.title"))}</a></h1>
+      <h1><a href="{_esc(ctx.u(urls.INDEX_PAGE))}">{_esc(t("site.title"))}</a></h1>
     </div>
     <nav aria-label="{_esc(t("nav.principal_aria"))}">
-      <a href="index.html"{home_class}>{_esc(t("nav.home"))}</a>
-      <a href="archive.html"{archive_class}>{_esc(t("nav.archive"))}</a>
-      <a href="feed.xml">{_esc(t("nav.rss"))}</a>
+      <a href="{_esc(ctx.u(urls.INDEX_PAGE))}"{home_class}>{_esc(t("nav.home"))}</a>
+      <a href="{_esc(ctx.u(urls.ARCHIVE_FRONT))}"{archive_class}>{_esc(t("nav.archive"))}</a>
+      <a href="{_esc(ctx.u(urls.FEED_FILE))}">{_esc(t("nav.rss"))}</a>
       {toggle}
     </nav>
   </div>
@@ -120,9 +142,10 @@ def _render_header(ctx: RenderContext, active: str) -> str:
 """.strip()
 
 
-def _render_subscribe(ctx: RenderContext, feed_url: str = "feed.xml") -> str:
+def _render_subscribe(ctx: RenderContext, feed_url: str = "") -> str:
     """Refined RSS footnote — not a marketing banner."""
     t = ctx.catalog.t
+    target = feed_url or ctx.u(urls.FEED_FILE)
     return f"""
 <aside class="subscribe" aria-label="{_esc(t("subscribe.aria_label"))}">
   <div class="icon" aria-hidden="true">
@@ -134,7 +157,7 @@ def _render_subscribe(ctx: RenderContext, feed_url: str = "feed.xml") -> str:
     <p class="title">{_esc(t("subscribe.title"))}</p>
     <p class="sub">{_esc(t("subscribe.subtitle"))}</p>
   </div>
-  <a class="button" href="{_esc(feed_url)}">{_esc(t("subscribe.button"))}</a>
+  <a class="button" href="{_esc(target)}">{_esc(t("subscribe.button"))}</a>
 </aside>
 """.strip()
 
@@ -387,7 +410,7 @@ def _render_atlas(entry: SiteEntry, ctx: RenderContext, *, hero: bool = False) -
     <span class="atlas-title">{_esc(label)}</span>
   </header>
   <a class="atlas-frame" href="{_esc(species_page)}"{"" if hero else ' target="_blank" rel="noopener"'} aria-label="{_esc(entry.scientific_name)} — GBIF">
-    <img class="atlas-base" src="assets/basemap.png" alt="" loading="lazy" />
+    <img class="atlas-base" src="{_esc(ctx.u(urls.BASEMAP))}" alt="" loading="lazy" />
     <img class="atlas-data" src="{_esc(entry.distribution_map_url)}" alt="{_esc(alt)}" loading="lazy" />
     <span class="atlas-equator" aria-hidden="true"></span>
     <span class="atlas-meridian" aria-hidden="true"></span>
@@ -404,10 +427,7 @@ def _render_atlas(entry: SiteEntry, ctx: RenderContext, *, hero: bool = False) -
 
 
 def _render_card(entry: SiteEntry, ctx: RenderContext) -> str:
-    """Render a grid card. The ``ctx`` parameter is unused for now (cards
-    only contain proper-noun and metadata text) but kept for symmetry with
-    other helpers and so the future addition of any UI string is local."""
-    del ctx  # explicitly unused for now
+    """Render a grid card linking to the entry's canonical species page."""
     if entry.image_url:
         thumb = (
             f'<div class="card-thumb">'
@@ -438,7 +458,7 @@ def _render_card(entry: SiteEntry, ctx: RenderContext) -> str:
 
     return f"""
 <article class="card">
-  <a href="{_esc(entry.archive_url)}">
+  <a href="{_esc(ctx.u(entry.species_url))}">
     {thumb}
     <div class="card-meta">
       {number_html}
@@ -473,7 +493,7 @@ def _page(
     title: str, body: str, ctx: RenderContext, active: str
 ) -> str:
     t = ctx.catalog.t
-    stylesheet_href = _esc(urls.STYLESHEET)  # TODO(task-4): resolve through ctx.u
+    stylesheet_href = _esc(ctx.u(urls.STYLESHEET))
     return f"""<!DOCTYPE html>
 <html lang="{_esc(ctx.catalog.html_lang)}">
 <head>
@@ -484,7 +504,7 @@ def _page(
   <meta name="theme-color" content="#F4EEE0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0F1518" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="{_FAVICON_SVG}">
-  <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="feed.xml">
+  <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="{_esc(ctx.u(urls.FEED_FILE))}">
   {_THEME_BOOT_SCRIPT}
   <link rel="stylesheet" href="{stylesheet_href}">
 </head>
