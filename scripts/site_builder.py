@@ -244,13 +244,23 @@ def _specimen_tag(taxonomy: dict) -> str:
 
 
 def render_plate(
-    entry: SiteEntry, ctx: RenderContext, *, hero: bool = False
+    entry: SiteEntry,
+    ctx: RenderContext,
+    *,
+    hero: bool = False,
+    show_republished_chip: bool = True,
 ) -> str:
     """Render a bird as a numbered field-journal plate.
 
     Used both for the index hero and every archive entry. Hero variant gets
     the soaring-bird watermark via CSS (``.plate.hero::before``) and
     eager-loaded image; archive variant gets lazy loading and an anchor id.
+
+    ``show_republished_chip`` defaults to on so every existing caller keeps
+    showing it. The species page passes ``False``: it already lists every
+    publication date of its own under ``species.history_heading``, so a
+    chip repeating the most recent of those dates would be noise, not a
+    debut-vs-repeat distinction like it is everywhere else this renders.
     """
     target_lang = ctx.catalog.language
 
@@ -405,7 +415,9 @@ def render_plate(
                 f'aria-label="{_esc(iucn_label)}">{_esc(entry.iucn_code)}</span>'
             )
 
-    republished_html = _republished_chip(entry, ctx, link=True)
+    republished_html = (
+        _republished_chip(entry, ctx, link=True) if show_republished_chip else ""
+    )
 
     return f"""
 <{tag} class="{classes}"{anchor_attr}{aria}>

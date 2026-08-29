@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from scripts import feed_builder, i18n, site_builder, urls
+from scripts import archive_builder, feed_builder, i18n, site_builder, urls
 from scripts.site_builder import RenderContext, SiteEntry
 
 
@@ -96,3 +96,28 @@ def test_every_catalog_carries_the_chip_copy():
         data = json.loads(path.read_text(encoding="utf-8"))
         assert "republished.chip_template" in data, path.name
         assert "{date}" in data["republished.chip_template"], path.name
+
+
+def test_species_page_omits_the_chip_but_its_month_bucket_still_shows_it(tmp_path):
+    """The species page already lists every publication date under its own
+    heading, so the brief rules the chip out there. A test that only
+    checked the species page would still pass against a build that lost
+    the chip everywhere, so the month bucket page is checked too, and it
+    must still carry the chip for the same publication.
+    """
+    older = _entry()
+    older.date = "2026-06-12"
+    older.number = 1
+    newer = _entry("2026-06-12")
+    newer.date = "2026-08-29"
+    newer.number = 2
+
+    archive_builder.write_site([newer, older], tmp_path, i18n.Catalog.load("es"))
+
+    species_html = (tmp_path / "birds" / "cometi1.html").read_text(encoding="utf-8")
+    assert "republished-chip" not in species_html
+
+    bucket_html = (
+        tmp_path / urls.bucket_filename("2026-08-29")
+    ).read_text(encoding="utf-8")
+    assert "republished-chip" in bucket_html
