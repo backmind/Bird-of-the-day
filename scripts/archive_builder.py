@@ -37,31 +37,57 @@ def month_label(ctx: RenderContext, month: str) -> str:
     return f"{ctx.catalog.t(f'month.{int(number)}')} {year}"
 
 
-def _month_nav(
-    ctx: RenderContext, *, newer_month: str = "", older_month: str = ""
+def _page_nav(
+    ctx: RenderContext,
+    *,
+    older: tuple[str, str] | None = None,
+    newer: tuple[str, str] | None = None,
 ) -> str:
+    """The pagination strip shared by month buckets and species pages.
+
+    ``older`` and ``newer`` are ``(href, text)`` pairs already resolved by
+    the caller, or None when that direction does not exist. The way back
+    to the archive front is always offered.
+    """
     t = ctx.catalog.t
     parts = []
-    if older_month:
+    if older is not None:
+        href, text = older
         parts.append(
-            f'<a class="page-nav-older" '
-            f'href="{_esc(ctx.u(urls.bucket_filename_for_month(older_month)))}">'
-            f'{_esc(t("nav.older_month"))}: {_esc(month_label(ctx, older_month))}</a>'
+            f'<a class="page-nav-older" href="{_esc(href)}">{_esc(text)}</a>'
         )
     parts.append(
         f'<a class="page-nav-up" href="{_esc(ctx.u(urls.ARCHIVE_FRONT))}">'
         f'{_esc(t("nav.back_to_archive"))}</a>'
     )
-    if newer_month:
+    if newer is not None:
+        href, text = newer
         parts.append(
-            f'<a class="page-nav-newer" '
-            f'href="{_esc(ctx.u(urls.bucket_filename_for_month(newer_month)))}">'
-            f'{_esc(t("nav.newer_month"))}: {_esc(month_label(ctx, newer_month))}</a>'
+            f'<a class="page-nav-newer" href="{_esc(href)}">{_esc(text)}</a>'
         )
     return (
         f'<nav class="page-nav" aria-label="{_esc(t("nav.pagination_aria"))}">'
         f'{"".join(parts)}</nav>'
     )
+
+
+def _month_nav(
+    ctx: RenderContext, *, newer_month: str = "", older_month: str = ""
+) -> str:
+    t = ctx.catalog.t
+    older = None
+    if older_month:
+        older = (
+            ctx.u(urls.bucket_filename_for_month(older_month)),
+            f'{t("nav.older_month")}: {month_label(ctx, older_month)}',
+        )
+    newer = None
+    if newer_month:
+        newer = (
+            ctx.u(urls.bucket_filename_for_month(newer_month)),
+            f'{t("nav.newer_month")}: {month_label(ctx, newer_month)}',
+        )
+    return _page_nav(ctx, older=older, newer=newer)
 
 
 def _legacy_anchor_shim() -> str:
@@ -168,27 +194,17 @@ def _plate_nav(
     newer: SiteEntry | None = None,
 ) -> str:
     t = ctx.catalog.t
-    parts = []
-    if older is not None:
-        parts.append(
-            f'<a class="page-nav-older" '
-            f'href="{_esc(ctx.u(older.species_url))}">'
-            f'{_esc(t("nav.older_plate"))}: {_esc(older.common_name)}</a>'
-        )
-    parts.append(
-        f'<a class="page-nav-up" href="{_esc(ctx.u(urls.ARCHIVE_FRONT))}">'
-        f'{_esc(t("nav.back_to_archive"))}</a>'
+    older_pair = (
+        (ctx.u(older.species_url), f'{t("nav.older_plate")}: {older.common_name}')
+        if older is not None
+        else None
     )
-    if newer is not None:
-        parts.append(
-            f'<a class="page-nav-newer" '
-            f'href="{_esc(ctx.u(newer.species_url))}">'
-            f'{_esc(t("nav.newer_plate"))}: {_esc(newer.common_name)}</a>'
-        )
-    return (
-        f'<nav class="page-nav" aria-label="{_esc(t("nav.pagination_aria"))}">'
-        f'{"".join(parts)}</nav>'
+    newer_pair = (
+        (ctx.u(newer.species_url), f'{t("nav.newer_plate")}: {newer.common_name}')
+        if newer is not None
+        else None
     )
+    return _page_nav(ctx, older=older_pair, newer=newer_pair)
 
 
 def _publication_history(publications: list[SiteEntry], ctx: RenderContext) -> str:
@@ -198,7 +214,7 @@ def _publication_history(publications: list[SiteEntry], ctx: RenderContext) -> s
     rows = "".join(
         f"<li>"
         f'<a href="{_esc(ctx.u(p.archive_url))}">'
-        f'<span class="glyph">&#8470;</span>&nbsp;{p.number} · '
+        f'<span class="glyph">№</span>&nbsp;{p.number} · '
         f"{_esc(p.date_dotted)}</a>"
         f"</li>"
         for p in publications

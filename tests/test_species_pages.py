@@ -32,8 +32,15 @@ def test_grouping_collects_every_publication_of_a_species(entries):
 
 def test_page_shows_the_latest_plate(ctx, entries):
     grouped = archive_builder.group_by_species(entries)
-    html = archive_builder.build_species_page(grouped["b"], ctx)
-    assert "Bird b" in html
+    publications = grouped["b"]
+    # Same species, deliberately different names on the two publications:
+    # a test that leaves them identical would still pass if the oldest
+    # one were rendered by mistake.
+    publications[0].common_name = "Bird b newest"
+    publications[1].common_name = "Bird b oldest"
+    html = archive_builder.build_species_page(publications, ctx)
+    assert "Bird b newest" in html
+    assert "Bird b oldest" not in html
     assert html.count("plate-title") == 1
 
 
@@ -51,6 +58,20 @@ def test_navigation_links_the_neighbouring_plates(ctx, entries):
     )
     assert 'href="../birds/a.html"' in html
     assert 'href="../birds/c.html"' in html
+
+
+def test_navigation_omits_the_newer_link_when_there_is_none(ctx, entries):
+    grouped = archive_builder.group_by_species(entries)
+    html = archive_builder.build_species_page(grouped["b"], ctx, older=entries[3])
+    assert 'href="../birds/a.html"' in html
+    assert "page-nav-newer" not in html
+
+
+def test_navigation_omits_the_older_link_when_there_is_none(ctx, entries):
+    grouped = archive_builder.group_by_species(entries)
+    html = archive_builder.build_species_page(grouped["b"], ctx, newer=entries[0])
+    assert 'href="../birds/c.html"' in html
+    assert "page-nav-older" not in html
 
 
 def test_assets_are_reached_from_one_directory_down(ctx, entries):
