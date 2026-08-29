@@ -94,6 +94,8 @@ class SpeciesContent:
                                        # when the match failed or wasn't attempted
     distribution_map_url: str = ""     # hot-linkable GBIF density map PNG URL,
                                        # or "" when no GBIF match was found
+    gbif_match: str = ""              # distribution_map.MATCH_* state, or ""
+                                      # on caches written before v1.3
     iucn_code: str = ""                # IUCN Red List code (LC, NT, VU, EN, CR, etc.)
     iucn_birdlife_url: str = ""        # BirdLife factsheet URL for this species
 
@@ -306,11 +308,9 @@ def scrape_species_content(
 
     # GBIF distribution map. Best-effort: a failed lookup leaves the
     # map fields empty and the renderer skips the atlas section.
-    gbif_taxon_key: int | None = None
-    distribution_map_url = ""
-    gbif_result = distribution_map.fetch_distribution(scientific_name, session=sess)
-    if gbif_result is not None:
-        gbif_taxon_key, distribution_map_url = gbif_result
+    gbif_taxon_key, distribution_map_url, gbif_match = (
+        distribution_map.fetch_distribution_ex(scientific_name, session=sess)
+    )
 
     # IUCN Red List category (requires a successful GBIF taxon match).
     iucn_code = ""
@@ -350,6 +350,7 @@ def scrape_species_content(
         fallback_language=fallback_language,
         gbif_taxon_key=gbif_taxon_key,
         distribution_map_url=distribution_map_url,
+        gbif_match=gbif_match,
         iucn_code=iucn_code,
         iucn_birdlife_url=iucn_birdlife_url,
     )
@@ -380,6 +381,7 @@ def load_cached_content(
         fallback_language=data.get("fallback_language", ""),
         gbif_taxon_key=data.get("gbif_taxon_key"),
         distribution_map_url=data.get("distribution_map_url", ""),
+        gbif_match=data.get("gbif_match", ""),
         iucn_code=data.get("iucn_code", ""),
         iucn_birdlife_url=data.get("iucn_birdlife_url", ""),
     )
