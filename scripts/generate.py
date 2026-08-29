@@ -3,8 +3,9 @@
 
 Orchestrates species selection, image lookup, content scraping, RSS feed
 construction, and the static index.html / archive.html pages. Idempotent
-within a single UTC day: if today's bird is already in history, the script
-exits without making changes.
+within a single UTC day: if today's bird is already in history, no new
+entry is published. Maintenance still runs on every invocation, so a
+later tick can heal past entries and republish feed and site.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from pathlib import Path
 import requests
 
 from scripts import (
+    backfill,
     content_scraper,
     ebird_client,
     feed_builder,
@@ -113,6 +115,7 @@ _ENV_OVERRIDES: dict[str, tuple[str, type]] = {
     "BOTD_DEDUP_WINDOW": ("dedup_window", int),
     "BOTD_MAX_FEED_ENTRIES": ("max_feed_entries", int),
     "BOTD_BACK_DAYS": ("back_days", int),
+    "BOTD_BACKFILL_LIMIT": ("backfill_limit", int),
     "BOTD_FEED_LINK": ("feed_link", str),
 }
 
@@ -534,15 +537,57 @@ def main() -> None:
         logger.warning("Could not load English taxonomy; name linker disabled")
         english_name_index = {}
 
-    # Idempotency: skip if today's entry is already in history.
-    last = history["entries"][-1] if history["entries"] else None
-    if last and last.get("date") == date_str:
-        logger.info("Already generated for %s, skipping", date_str)
-        return
-
     description_policy = config.get("description_policy", "foreign_fallback")
+    feed_link = config.get("feed_link", "")
 
     try:
+        # Maintenance first: heal past entries (missed enrichments,
+        # failed GBIF lookups). Runs even when today is already
+        # published, so a second cron tick repairs the morning's outage.
+        code_to_localized, published_anchors, published_anchors_abs = (
+            _build_indexes(history, feed_link)
+        )
+        session = image_fetcher.new_session(
+            accept_language=catalog.accept_language_header
+        )
+        actions = backfill.run_backfill(
+            history, config, catalog, str(CACHE_DIR),
+            english_name_index, code_to_localized,
+            limit=int(config.get("backfill_limit", 3)),
+            session=session,
+        )
+        healed = [a for a in actions if a.ok]
+
+        # Idempotency: today's entry is already published. Republish only
+        # when backfill actually changed something.
+        last = history["entries"][-1] if history["entries"] else None
+        if last and last.get("date") == date_str:
+            if healed:
+                logger.info(
+                    "Already generated for %s; backfill healed %d, rebuilding",
+                    date_str, len(healed),
+                )
+                _rebuild_feed(
+                    history, config, catalog, description_policy,
+                    english_name_index, code_to_localized,
+                    published_anchors_abs, now,
+                )
+                site_entries = _build_site_entries(
+                    history, description_policy=description_policy
+                )
+                site_builder.write_site(
+                    site_entries,
+                    STATE_DIR,
+                    catalog=catalog,
+                    feed_link=feed_link,
+                    english_name_index=english_name_index,
+                    code_to_localized=code_to_localized,
+                    published_anchors=published_anchors,
+                )
+            else:
+                logger.info("Already generated for %s, skipping", date_str)
+            return
+
         # 1. Select species, fetch image + content.
         dedup_window = config.get("dedup_window", config.get("max_history", 50))
         history_codes = [e["speciesCode"] for e in history["entries"][-dedup_window:]]
@@ -601,8 +646,7 @@ def main() -> None:
         )
         save_history(history)
 
-        # 4. Build cross-reference indexes for the name linker.
-        feed_link = config.get("feed_link", "")
+        # 4. Rebuild cross-reference indexes so anchors include today.
         code_to_localized, published_anchors, published_anchors_abs = (
             _build_indexes(history, feed_link)
         )
