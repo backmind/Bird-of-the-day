@@ -278,6 +278,12 @@ def _call_llm(messages: list[dict], config: dict) -> dict | None:
                 resp.raise_for_status()
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
+                # Filtered completions return null, and some endpoints
+                # return a content-parts list. Neither is parseable, so
+                # convert it into a retryable error instead of letting an
+                # AttributeError escape this loop.
+                if not isinstance(content, str):
+                    raise ValueError("non-string content in completion")
                 parsed = _parse_llm_content(content)
                 if parsed is None:
                     raise ValueError("unparseable JSON in completion")

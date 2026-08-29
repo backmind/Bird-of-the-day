@@ -34,6 +34,16 @@ def _empty_choices_response() -> MagicMock:
     return resp
 
 
+def _null_content_response() -> MagicMock:
+    """A 200 whose message content is null, as OpenAI-compatible endpoints
+    return for a content-filtered completion."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"choices": [{"message": {"content": None}}]}
+    return resp
+
+
 def _busy_response(status=503, retry_after=None) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status
@@ -108,6 +118,17 @@ class TestCallLlm:
         # feed the retry loop, not escape as an uncaught IndexError.
         with patch("scripts.llm_enricher.requests.post",
                    side_effect=[_empty_choices_response(), _ok_response()]):
+            with patch("scripts.llm_enricher.time.sleep") as sleep:
+                with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
+                    result = _call_llm([], CFG)
+        assert result == GOOD_BODY
+        assert sleep.call_count == 1
+
+    def test_null_content_retries_instead_of_crashing(self):
+        # A 200 whose content is null (filtered completion) must feed the
+        # retry loop, not escape as an uncaught AttributeError.
+        with patch("scripts.llm_enricher.requests.post",
+                   side_effect=[_null_content_response(), _ok_response()]):
             with patch("scripts.llm_enricher.time.sleep") as sleep:
                 with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
                     result = _call_llm([], CFG)

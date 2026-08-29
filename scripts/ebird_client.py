@@ -13,7 +13,12 @@ from pathlib import Path
 
 import requests
 
+from scripts.http_client import build_session
+
 logger = logging.getLogger(__name__)
+
+# Shared session for all eBird API calls: retries on 429/5xx with backoff.
+_session = build_session()
 
 BASE_URL = "https://api.ebird.org/v2"
 REQUEST_TIMEOUT = 30
@@ -55,7 +60,7 @@ def get_recent_observations(
         "locale": locale,
     }
     try:
-        resp = requests.get(
+        resp = _session.get(
             url, headers=_headers(), params=params, timeout=REQUEST_TIMEOUT
         )
         resp.raise_for_status()
@@ -138,7 +143,7 @@ def get_full_taxonomy(
     logger.info("Fetching full taxonomy from eBird API (locale=%s)", locale)
     url = f"{BASE_URL}/ref/taxonomy/ebird"
     params = {"fmt": "json", "locale": locale, "cat": "species"}
-    resp = requests.get(url, headers=_headers(), params=params, timeout=120)
+    resp = _session.get(url, headers=_headers(), params=params, timeout=120)
     resp.raise_for_status()
     species = resp.json()
     _taxonomy_cache = species
@@ -180,7 +185,7 @@ def get_english_name_index(cache_dir: Path | None = None) -> dict[str, str]:
     logger.info("Fetching English taxonomy from eBird API")
     url = f"{BASE_URL}/ref/taxonomy/ebird"
     params = {"fmt": "json", "locale": "en", "cat": "species"}
-    resp = requests.get(url, headers=_headers(), params=params, timeout=120)
+    resp = _session.get(url, headers=_headers(), params=params, timeout=120)
     resp.raise_for_status()
     species = resp.json()
     _en_name_index = {

@@ -531,14 +531,18 @@ Bird-of-the-day/
 │   └── placeholder.html        # cold-start fallback page
 ├── scripts/
 │   ├── generate.py        # orchestrator (entry point)
+│   ├── http_client.py     # shared retry session + validated image download
 │   ├── ebird_client.py    # eBird API + species selection + taxonomy cache
 │   ├── image_fetcher.py   # Macaulay Library API + og:image fallback
 │   ├── content_scraper.py # eBird og:description + Wikipedia + BoW
 │   ├── llm_enricher.py   # optional LLM content enrichment
+│   ├── llm_validator.py   # structural checks on LLM output (hard/soft)
 │   ├── map_composer.py    # server-side map composition for RSS
 │   ├── name_linker.py     # species name cross-linking
 │   ├── feed_builder.py    # RSS 2.0 generation
 │   ├── site_builder.py    # index.html + archive.html generation
+│   ├── backfill.py        # self-healing retry of past degraded entries
+│   ├── run_report.py      # run summary + GitHub Actions annotations
 │   ├── i18n.py            # Catalog loader + langid wrapper
 │   └── seed_mock.py       # developer-only: populate the site for visual review
 ├── data/

@@ -1,11 +1,11 @@
 """Server-side composition of GBIF distribution maps for RSS feeds.
 
 RSS readers don't support CSS positioning, so the two-layer overlay used
-by the frontend (Carto basemap + GBIF density tile) shows as two stacked
-images. This module loads the committed basemap asset, downloads the
-density tile, alpha-composites them into a single PNG with approximate
-sepia/saturate/contrast filters matching the site's CSS, and saves the
-result for embedding in the feed.
+by the frontend (the committed static basemap + GBIF density tile) shows
+as two stacked images. This module loads the same committed basemap
+asset, downloads the density tile, alpha-composites them into a single
+PNG with approximate sepia/saturate/contrast filters matching the site's
+CSS, and saves the result for embedding in the feed.
 """
 
 from __future__ import annotations

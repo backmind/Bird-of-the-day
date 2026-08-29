@@ -338,12 +338,15 @@ def _rebuild_feed(
     code_to_localized: dict,
     published_anchors_abs: dict,
     now: datetime,
-) -> None:
+) -> dict[str, str]:
     """Full-rebuild the RSS feed from history.
 
     Every entry gets fresh name-linker output so cross-links to newly
     published species appear retroactively in older entries. pubDates are
     preserved from the existing feed via a pre-pass lookup.
+
+    Returns the ``species_code`` to relative-path map of composed
+    distribution maps, so callers can report the ones that are missing.
     """
     existing_pub_by_guid = {
         e.guid: e.pub_date
@@ -429,6 +432,27 @@ def _rebuild_feed(
     all_feed_entries = all_feed_entries[:max_entries]
     feed_xml = feed_builder.build_feed(all_feed_entries, config, catalog)
     feed_builder.write_feed(feed_xml, str(FEED_PATH))
+    return composed_paths
+
+
+def _report_missing_maps(
+    history: dict,
+    composed_paths: dict[str, str],
+    report: run_report.RunReport,
+) -> None:
+    """Warn about species whose distribution map failed to compose.
+
+    Composition never fails the run, so without this the feed silently
+    loses maps. Only species that actually have a GBIF map URL are
+    reported: the rest have nothing to compose.
+    """
+    for entry in history["entries"]:
+        code = entry.get("speciesCode")
+        if not code or code in composed_paths:
+            continue
+        cached = content_scraper.load_cached_content(code, str(CACHE_DIR))
+        if cached is not None and cached.distribution_map_url:
+            report.warn(f"map composition missing for {code}")
 
 
 def _select_and_fetch(
@@ -594,11 +618,12 @@ def main() -> None:
                     "Already generated for %s; backfill healed %d, rebuilding",
                     date_str, len(healed),
                 )
-                _rebuild_feed(
+                composed_paths = _rebuild_feed(
                     history, config, catalog, description_policy,
                     english_name_index, code_to_localized,
                     published_anchors_abs, now,
                 )
+                _report_missing_maps(history, composed_paths, report)
                 site_entries = _build_site_entries(
                     history, description_policy=description_policy
                 )
@@ -694,10 +719,11 @@ def main() -> None:
         )
 
         # 5. Full-rebuild the RSS feed.
-        _rebuild_feed(
+        composed_paths = _rebuild_feed(
             history, config, catalog, description_policy,
             english_name_index, code_to_localized, published_anchors_abs, now,
         )
+        _report_missing_maps(history, composed_paths, report)
 
         # 6. Generate the static site.
         site_entries = _build_site_entries(history, description_policy=description_policy)
