@@ -56,9 +56,12 @@ def gbif_taxon_match_ex(
 
     sess = session or requests.Session()
     try:
+        # The kingdom hint disambiguates cross-kingdom homonyms: without
+        # it GBIF answers NONE for e.g. "Chloris chloris" (the greenfinch)
+        # because Chloris is also a grass genus.
         resp = sess.get(
             GBIF_MATCH_URL,
-            params={"name": scientific_name},
+            params={"name": scientific_name, "kingdom": "Animalia"},
             timeout=REQUEST_TIMEOUT,
         )
         resp.raise_for_status()

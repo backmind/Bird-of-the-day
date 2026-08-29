@@ -112,3 +112,15 @@ class TestContentCacheRoundTrip:
         loaded = load_cached_content("old", str(tmp_path))
         assert loaded is not None
         assert loaded.gbif_match == ""
+
+
+class TestKingdomHint:
+    def test_match_sends_kingdom_animalia(self):
+        sess = _session_returning(
+            {"matchType": "EXACT", "confidence": 99, "usageKey": 42,
+             "rank": "SPECIES"}
+        )
+        gbif_taxon_match_ex("Chloris chloris", session=sess)
+        params = sess.get.call_args.kwargs["params"]
+        assert params["kingdom"] == "Animalia"
+        assert params["name"] == "Chloris chloris"
