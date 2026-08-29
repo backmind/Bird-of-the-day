@@ -23,6 +23,38 @@ def entries():
     ]
 
 
+def _pages(tmp_path) -> dict[str, str]:
+    return {
+        p.relative_to(tmp_path).as_posix(): p.read_text(encoding="utf-8")
+        for p in tmp_path.rglob("*.html")
+    }
+
+
+def test_no_page_links_a_full_feed_that_is_not_published(tmp_path, catalog, entries):
+    # The whole page set, not one renderer: the production instance runs
+    # without a cap, so feed-full.xml is never written, and a link to it
+    # surviving on any page type is a 404 on every page of that type.
+    archive_builder.write_site(entries, tmp_path, catalog, full_feed=False)
+    pages = _pages(tmp_path)
+    assert len(pages) == 7
+    offenders = {name for name, html in pages.items() if "feed-full.xml" in html}
+    assert offenders == set()
+    # The capped feed is still announced everywhere.
+    assert all("feed.xml" in html for html in pages.values())
+
+
+def test_every_page_links_the_full_feed_when_it_is_published(
+    tmp_path, catalog, entries
+):
+    archive_builder.write_site(entries, tmp_path, catalog, full_feed=True)
+    pages = _pages(tmp_path)
+    assert len(pages) == 7
+    missing = {name for name, html in pages.items() if "feed-full.xml" not in html}
+    assert missing == set()
+    # Species pages live one directory down and must climb out.
+    assert 'href="../feed-full.xml"' in pages["birds/c.html"]
+
+
 def test_writes_the_full_page_set(tmp_path, catalog, entries):
     result = archive_builder.write_site(entries, tmp_path, catalog)
     written = {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*.html")}
