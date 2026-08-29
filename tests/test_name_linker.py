@@ -138,3 +138,44 @@ def test_shortform_is_case_sensitive():
     )
     assert result.count("ebird.org/species/atlpuf") == 1
     assert "frailecillo de juguete" in result
+
+
+def test_english_substitution_fixes_determiner():
+    """Masculine 'El' before a feminine localized name becomes 'La'."""
+    eni = {"Monk Parakeet": "monpar"}
+    c2l = {"monpar": "Cotorra Argentina"}
+    result = process_description(
+        "El Monk Parakeet es ruidoso.", eni, c2l, {}
+    )
+    assert "La " in result
+    assert "El Cotorra" not in result
+
+
+def test_determiner_untouched_when_gender_agrees():
+    """A determiner that already agrees with the localized gender is kept."""
+    eni = {"Black Kite": "blakit1"}
+    c2l = {"blakit1": "Milano Negro"}
+    result = process_description(
+        "el Black Kite vuela", eni, c2l, {}
+    )
+    assert "el " in result
+
+
+def test_feminine_el_head_not_rewritten():
+    """Feminine nouns using 'el' in the singular are left untouched."""
+    eni = {"Golden Eagle": "goleag"}
+    c2l = {"goleag": "Águila Real"}
+    result = process_description(
+        "el Golden Eagle planea alto", eni, c2l, {}
+    )
+    assert 'el <a href="https://ebird.org/species/goleag"' in result
+
+
+def test_capitalized_determiner_preserved():
+    """A capitalized determiner keeps its capitalization when rewritten."""
+    eni = {"Monk Parakeet": "monpar"}
+    c2l = {"monpar": "Cotorra Argentina"}
+    result = process_description(
+        "Del Monk Parakeet se dice mucho.", eni, c2l, {}
+    )
+    assert "De la " in result

@@ -4,7 +4,10 @@ Pipeline over raw description text:
 
   1. **English → locale substitution** — 2+ word English names matched
      with word boundaries, longest-first. Replaces with the localised
-     name and wraps in a link (archive or eBird fallback).
+     name and wraps in a link (archive or eBird fallback). An
+     immediately preceding singular determiner ("el"/"un"/"del"/"al")
+     is rewritten to agree with the localised name's gender; adjective
+     agreement is out of scope.
   2. **Locale → link** — localized names matched with word boundaries.
      Wraps in a link without substitution (the name is already in the
      target language). This pass always runs, catching names written
@@ -30,6 +33,83 @@ import html
 import re
 
 _MIN_SHORTFORM_LEN = 4  # words shorter than this are skipped in pass 3
+
+# Feminine Spanish nouns that take the masculine-looking article "el"/"un"
+# in the singular (stressed initial a-). Determiner rewriting is skipped
+# for these heads: "el aguila" is already correct Spanish.
+_FEMININE_EL_HEADS = {"águila", "ave", "arpía", "ánade", "agachona"}
+
+# Masculine nouns ending in -a that would fool the ending heuristic.
+_MASCULINE_A_HEADS = {"quetzal"}  # extend as needed; -a bird heads are
+                                  # overwhelmingly feminine
+
+
+def _localized_gender(localized: str) -> str:
+    """Best-effort grammatical gender ("m"/"f") of a Spanish species name.
+
+    Uses the head noun's ending: -a is feminine, everything else
+    masculine. Bird head nouns follow this rule almost without
+    exception (gaviota, cotorra, curruca / azor, milano, halcon).
+    """
+    head = localized.split()[0].lower() if localized else ""
+    if head in _MASCULINE_A_HEADS:
+        return "m"
+    return "f" if head.endswith("a") else "m"
+
+
+_DETERMINER_RE = re.compile(
+    r"(?P<det>\b(?:de la|a la|el|la|un|una|del|al))(?P<ws>\s+)$",
+    re.IGNORECASE,
+)
+
+# masculine form -> feminine form; the reverse map is derived below.
+_DET_M2F = {"el": "la", "un": "una", "del": "de la", "al": "a la"}
+_DET_F2M = {"la": "el", "una": "un", "de la": "del", "a la": "al"}
+
+
+def _agree_determiner(det: str, gender: str) -> str | None:
+    """Return the gender-agreeing form of *det*, or None if no change.
+
+    Preserves the capitalization of the first letter. Only singular
+    determiners are handled; plurals and demonstratives are left alone.
+    """
+    lower = det.lower()
+    if gender == "f" and lower in _DET_M2F:
+        fixed = _DET_M2F[lower]
+    elif gender == "m" and lower in _DET_F2M:
+        fixed = _DET_F2M[lower]
+    else:
+        return None
+    if det[0].isupper():
+        fixed = fixed[0].upper() + fixed[1:]
+    return fixed
+
+
+def _extend_with_determiner(
+    raw_text: str, start: int, end: int, localized: str
+) -> tuple[int, int, str]:
+    """Extend a match span backwards to cover a determiner needing agreement.
+
+    Returns ``(start, end, det_prefix)``. ``det_prefix`` is the corrected
+    determiner text plus its trailing whitespace, or ``""`` when no
+    correction is needed (the original *start* is returned unchanged).
+    """
+    head = localized.split()[0].lower() if localized else ""
+    if head in _FEMININE_EL_HEADS:
+        return start, end, ""
+
+    det_match = _DETERMINER_RE.search(raw_text[:start])
+    if not det_match:
+        return start, end, ""
+
+    gender = _localized_gender(localized)
+    corrected = _agree_determiner(det_match.group("det"), gender)
+    if corrected is None:
+        return start, end, ""
+
+    new_start = det_match.start("det")
+    prefix = corrected + det_match.group("ws")
+    return new_start, end, prefix
 
 
 def _make_link(
@@ -145,8 +225,11 @@ def process_description(
 
     for start, end, code, matched in _find_english_names(raw_text, english_name_index):
         localized = code_to_localized.get(code, matched)
-        repl = _make_link(code, localized, published_anchors, ebird_locale)
-        if _try_add(start, end, repl):
+        link = _make_link(code, localized, published_anchors, ebird_locale)
+        ext_start, ext_end, det_prefix = _extend_with_determiner(
+            raw_text, start, end, localized
+        )
+        if _try_add(ext_start, ext_end, det_prefix + link):
             confirmed_species[code] = matched
 
     # ── Pass 2: Localized names → link (always runs) ───────────
