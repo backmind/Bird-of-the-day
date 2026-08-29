@@ -4,10 +4,12 @@ Pipeline over raw description text:
 
   1. **English → locale substitution** — 2+ word English names matched
      with word boundaries, longest-first. Replaces with the localised
-     name and wraps in a link (archive or eBird fallback). An
-     immediately preceding singular determiner ("el"/"un"/"del"/"al")
-     is rewritten to agree with the localised name's gender; adjective
-     agreement is out of scope.
+     name and wraps in a link (archive or eBird fallback). When a real
+     substitution happens (a localized name is actually known for the
+     species), an immediately preceding singular determiner is
+     rewritten to agree with the localised name's gender: "el"/"un"/
+     "del"/"al" toward feminine, or "la"/"una"/"de la"/"a la" toward
+     masculine. Adjective agreement is out of scope.
   2. **Locale → link** — localized names matched with word boundaries.
      Wraps in a link without substitution (the name is already in the
      target language). This pass always runs, catching names written
@@ -37,11 +39,7 @@ _MIN_SHORTFORM_LEN = 4  # words shorter than this are skipped in pass 3
 # Feminine Spanish nouns that take the masculine-looking article "el"/"un"
 # in the singular (stressed initial a-). Determiner rewriting is skipped
 # for these heads: "el aguila" is already correct Spanish.
-_FEMININE_EL_HEADS = {"águila", "ave", "arpía", "ánade", "agachona"}
-
-# Masculine nouns ending in -a that would fool the ending heuristic.
-_MASCULINE_A_HEADS = {"quetzal"}  # extend as needed; -a bird heads are
-                                  # overwhelmingly feminine
+_FEMININE_EL_HEADS = {"águila", "ave"}
 
 
 def _localized_gender(localized: str) -> str:
@@ -49,11 +47,11 @@ def _localized_gender(localized: str) -> str:
 
     Uses the head noun's ending: -a is feminine, everything else
     masculine. Bird head nouns follow this rule almost without
-    exception (gaviota, cotorra, curruca / azor, milano, halcon).
+    exception (gaviota, cotorra, curruca / azor, milano, halcon); a
+    masculine exception set for -a-ending heads would go here if one
+    is ever needed.
     """
-    head = localized.split()[0].lower() if localized else ""
-    if head in _MASCULINE_A_HEADS:
-        return "m"
+    head = (localized.split() or [""])[0].lower() if localized else ""
     return "f" if head.endswith("a") else "m"
 
 
@@ -94,7 +92,7 @@ def _extend_with_determiner(
     determiner text plus its trailing whitespace, or ``""`` when no
     correction is needed (the original *start* is returned unchanged).
     """
-    head = localized.split()[0].lower() if localized else ""
+    head = (localized.split() or [""])[0].lower() if localized else ""
     if head in _FEMININE_EL_HEADS:
         return start, end, ""
 
@@ -226,10 +224,26 @@ def process_description(
     for start, end, code, matched in _find_english_names(raw_text, english_name_index):
         localized = code_to_localized.get(code, matched)
         link = _make_link(code, localized, published_anchors, ebird_locale)
-        ext_start, ext_end, det_prefix = _extend_with_determiner(
-            raw_text, start, end, localized
-        )
+
+        # Only rewrite the preceding determiner when a real substitution
+        # happens: code_to_localized.get(code, matched) falls back to the
+        # English matched text itself when the code is absent (e.g. a
+        # degraded taxonomy fetch), and the English head must never be
+        # used to infer Spanish gender.
+        substituted = code in code_to_localized and code_to_localized[code] != matched
+        det_prefix = ""
+        ext_start, ext_end = start, end
+        if substituted:
+            ext_start, ext_end, det_prefix = _extend_with_determiner(
+                raw_text, start, end, localized
+            )
+
         if _try_add(ext_start, ext_end, det_prefix + link):
+            confirmed_species[code] = matched
+        elif det_prefix and _try_add(start, end, link):
+            # The extended span (covering the determiner) collided with
+            # an already-occupied region; fall back to the plain span so
+            # an occupied determiner cannot silently drop the match.
             confirmed_species[code] = matched
 
     # ── Pass 2: Localized names → link (always runs) ───────────
@@ -264,7 +278,7 @@ def process_description(
     # Norte").
     for code, full_name in confirmed_species.items():
         localized = code_to_localized.get(code, full_name)
-        head = localized.split()[0] if localized else ""
+        head = (localized.split() or [""])[0] if localized else ""
         if len(head) < _MIN_SHORTFORM_LEN:
             continue
         pattern = re.compile(r"\b" + re.escape(head) + r"\b")

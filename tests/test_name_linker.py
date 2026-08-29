@@ -149,6 +149,7 @@ def test_english_substitution_fixes_determiner():
     )
     assert "La " in result
     assert "El Cotorra" not in result
+    assert 'La <a' in result
 
 
 def test_determiner_untouched_when_gender_agrees():
@@ -159,6 +160,7 @@ def test_determiner_untouched_when_gender_agrees():
         "el Black Kite vuela", eni, c2l, {}
     )
     assert "el " in result
+    assert 'el <a' in result
 
 
 def test_feminine_el_head_not_rewritten():
@@ -179,3 +181,29 @@ def test_capitalized_determiner_preserved():
         "Del Monk Parakeet se dice mucho.", eni, c2l, {}
     )
     assert "De la " in result
+
+
+def test_no_determiner_rewrite_without_substitution():
+    """No real substitution happens when the code has no localized name.
+
+    ``code_to_localized.get(code, matched)`` falls back to the English
+    matched text itself (live production state when the taxonomy fetch
+    degrades to ``{}``). The determiner must NOT be rewritten against
+    the English head noun in that case.
+    """
+    eni = {"Barn Owl": "brnowl"}
+    result = process_description(
+        "la Barn Owl vuela de noche.", eni, {}, {}
+    )
+    assert 'la <a href="https://ebird.org/species/brnowl"' in result
+    assert 'el <a' not in result
+
+
+def test_whitespace_localized_name_does_not_crash():
+    """A whitespace-only localized name must not raise IndexError."""
+    eni = {"Barn Owl": "brnowl"}
+    c2l = {"brnowl": "   "}
+    result = process_description(
+        "The Barn Owl flies at night.", eni, c2l, {}
+    )
+    assert "ebird.org/species/brnowl" in result
