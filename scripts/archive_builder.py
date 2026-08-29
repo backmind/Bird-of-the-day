@@ -258,7 +258,7 @@ def build_species_page(
     """
     latest = publications[0]
     body_parts = [
-        site_builder.render_plate(latest, ctx, hero=True),
+        site_builder.render_plate(latest, ctx, hero=True, show_republished_chip=False),
         _publication_history(publications, ctx),
         _plate_nav(ctx, older=older, newer=newer),
         site_builder.render_subscribe(ctx),

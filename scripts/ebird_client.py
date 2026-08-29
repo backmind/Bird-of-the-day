@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import random
 import sys
@@ -23,6 +24,15 @@ _session = build_session()
 BASE_URL = "https://api.ebird.org/v2"
 REQUEST_TIMEOUT = 30
 TAXONOMY_TTL_DAYS = 30
+
+MAX_POOL_SPECIES = 1000
+"""Species a pool may offer in a day.
+
+The endpoint returns one record per species, so this is a species count,
+not an observation count. It used to be 200, which is fewer species than
+Spain reports in a fortnight: the dedup window was on course to outgrow
+the supply and turn every regional day into a recycled one.
+"""
 
 # Module-level cache; populated lazily from disk or the network.
 _taxonomy_cache: list[dict] | None = None
@@ -56,7 +66,7 @@ def get_recent_observations(
         "cat": "species",
         "hotspot": "false",
         "includeProvisional": "false",
-        "maxResults": 200,
+        "maxResults": MAX_POOL_SPECIES,
         "locale": locale,
     }
     try:
@@ -261,6 +271,160 @@ def _date_seed(date_str: str, salt: str = "") -> int:
     return int(hashlib.sha256((date_str + salt).encode()).hexdigest(), 16)
 
 
+WINDOW_SUPPLY_FRACTION = 0.75
+
+
+def _note(notes: list[str] | None, message: str) -> None:
+    """Log a selection diagnostic and, when asked, hand it to the caller.
+
+    The daily run turns these into report lines: the roadmap's rule is
+    that degradation is visible, and a pool running out of unpublished
+    species is exactly the kind of thing that used to happen in silence.
+    """
+    logger.info(message)
+    if notes is not None:
+        notes.append(message)
+
+
+def _recency_order(published_codes: list[str]) -> list[str]:
+    """Distinct species, most recently published first.
+
+    ``published_codes`` arrives oldest first, repeats included, exactly as
+    history stores it. Walking it backwards and keeping each code's first
+    sighting gives the one ordering the dedup window and its clamp need.
+    A species never published is absent from the result: it is infinitely
+    old, so it is always eligible and always ahead of anything that has
+    been published.
+    """
+    seen: set[str] = set()
+    order: list[str] = []
+    for code in reversed(published_codes):
+        if code and code not in seen:
+            seen.add(code)
+            order.append(code)
+    return order
+
+
+def scaled_window(config: dict, history_len: int) -> int:
+    """Dedup window that grows with the archive.
+
+    Measured in entries rather than distinct species on purpose: counting
+    distinct species would feed back on itself, because more repeats would
+    slow the window's growth and cause more repeats.
+    """
+    floor = int(config.get("dedup_window", config.get("max_history", 50)))
+    return max(floor, history_len // 2)
+
+
+def _effective_window(window: int, supply: int) -> int:
+    """The window a pool can actually afford today.
+
+    The window scales with the archive, so on a long enough history it
+    would name every species a pool is able to produce and leave the day
+    with nothing to publish. Never blocking more than
+    ``WINDOW_SUPPLY_FRACTION`` of today's supply keeps a quarter of the
+    pool eligible no matter how long the archive gets.
+    """
+    return max(min(window, int(supply * WINDOW_SUPPLY_FRACTION)), 0)
+
+
+def _rarity_score(total_count: int) -> float:
+    """Selection weight: rarer species score higher, but not wildly.
+
+    Inverse square root rather than plain inverse. The candidate list runs
+    to a thousand species, most of them reported once, and a linear
+    inverse would let those single sightings swallow the draw.
+    """
+    return 1.0 / math.sqrt(max(total_count, 1))
+
+
+def _weighted_pick(candidates: list[dict], date_str: str, salt: str) -> dict:
+    """The rarity-weighted, date-seeded draw shared by every path."""
+    scores = [_rarity_score(c.get("total_count", 1)) for c in candidates]
+    rng = random.Random(_date_seed(date_str, salt=salt))
+    return rng.choices(candidates, weights=scores, k=1)[0]
+
+
+def _clamp_and_pick(
+    candidates: list[dict],
+    recency: list[str],
+    window: int,
+    date_str: str,
+    salt: str,
+    label: str,
+    exclude: frozenset[str] = frozenset(),
+    notes: list[str] | None = None,
+) -> dict | None:
+    """Clamp the dedup window to supply, then pick with rarity bias.
+
+    Shared by every pool type so the clamp note, the exhaustion note, and
+    the weighted draw exist in exactly one place. Two call sites drifted
+    once already (the taxonomy path silently dropped the clamp note);
+    this is the fix for that class of bug, not just this one instance.
+
+    ``candidates`` must be non-empty; callers check that first, since an
+    empty pool is a "no observations at all" case, not a clamp/valve one.
+    ``label`` names the pool in the notes ("pool madrid", "the world
+    list"); ``salt`` seeds the draw and is kept distinct per pool so
+    today's picks do not change.
+
+    ``exclude`` is a skip-policy re-roll's already-tried codes, not part
+    of what the pool offers: it is applied only after the window has
+    picked the eligible set, never folded into ``candidates`` or
+    ``supply``. Folding it in earlier would shrink supply, and therefore
+    the clamped window, on every retry for a reason that has nothing to
+    do with today's dedup pressure. Returns ``None`` when ``exclude``
+    empties what the window left standing, so the caller's rescue path
+    can take over instead of failing here.
+    """
+    supply = len(candidates)
+    effective = _effective_window(window, supply)
+    # The clamp is only worth reporting when it actually blocked fewer
+    # species than the raw window would have: when there are more
+    # previously published species than the clamped window can hold. A
+    # brand new instance with an empty history has nothing in `recency`
+    # at all, so `effective < window` is true on its very first run while
+    # the clamp costs nothing -- recency[:effective] and recency[:window]
+    # are both empty either way. The note is meant to be the early
+    # warning that the archive is catching up with the pool, not noise on
+    # day one.
+    if effective < window and len(recency) > effective:
+        _note(
+            notes,
+            f"dedup window clamped from {window} to {effective}: "
+            f"{label} offers {supply} species today",
+        )
+
+    # Blocking only the most recently published `effective` species, where
+    # `effective <= WINDOW_SUPPLY_FRACTION * supply`, always leaves the
+    # least recently published quarter (or more) standing, never-published
+    # species among them first. That is the valve: there is no second path
+    # to fall back to, because the clamp already is one.
+    blocked = set(recency[:effective])
+    eligible = [
+        c for c in candidates
+        if c["speciesCode"] not in blocked and c["speciesCode"] not in exclude
+    ]
+
+    # Exhaustion is a pure diagnostic here, not a branch: it flags the rare
+    # case where the raw, unclamped window would have blocked every species
+    # this pool offers today. It changes nothing about which candidates are
+    # eligible, and it must not claim more than that: this fires inside one
+    # attempt, and under the skip policy a later re-roll can still land on
+    # a debut from a different pool. The run report's own republished:
+    # line, read back from history, is what tells the true story.
+    raw_blocked = set(recency[:window])
+    if all(c["speciesCode"] in raw_blocked for c in candidates):
+        _note(
+            notes,
+            f"{label} offers no species outside the dedup window",
+        )
+
+    if not eligible:
+        return None
+    return _weighted_pick(eligible, date_str, salt)
+
+
 def _pick_pool(pools: list[dict], date_str: str) -> dict:
     seed = _date_seed(date_str)
     rng = random.Random(seed)
@@ -281,15 +445,29 @@ def _get_region_for_pool(pool: dict, date_str: str) -> str | None:
 
 def _select_from_observations(
     observations: list[dict],
-    history_codes: set[str],
+    recency: list[str],
+    window: int,
     date_str: str,
     pool_id: str,
+    exclude: frozenset[str] = frozenset(),
+    notes: list[str] | None = None,
 ) -> dict | None:
-    """Aggregate observations by species and pick one with rarity bias."""
+    """Aggregate observations by species and pick one with rarity bias.
+
+    The window is applied here, not by the caller, because clamping it
+    needs to know how many species this pool actually offers today, and
+    that is only known once the region has answered.
+
+    ``exclude`` never enters the aggregation: supply is what the pool
+    offers today, full stop, and folding a skip-policy re-roll's
+    already-tried codes into it here would shrink supply, and therefore
+    the clamped window, on every retry. It is applied downstream, in
+    ``_clamp_and_pick``, after the window has picked its eligible set.
+    """
     species_map: dict[str, dict] = {}
     for obs in observations:
         code = obs.get("speciesCode")
-        if not code or code in history_codes:
+        if not code:
             continue
         if code not in species_map:
             species_map[code] = {
@@ -303,12 +481,12 @@ def _select_from_observations(
     if not species_map:
         return None
 
-    candidates = list(species_map.values())
-    # Inverse-howMany rarity bias: rarer species get higher weight.
-    scores = [1.0 / c["total_count"] for c in candidates]
-    seed = _date_seed(date_str, salt=pool_id)
-    rng = random.Random(seed)
-    selected = rng.choices(candidates, weights=scores, k=1)[0]
+    selected = _clamp_and_pick(
+        list(species_map.values()), recency, window, date_str,
+        salt=pool_id, label=f"pool {pool_id}", exclude=exclude, notes=notes,
+    )
+    if selected is None:
+        return None
     return {
         "speciesCode": selected["speciesCode"],
         "comName": selected["comName"],
@@ -317,20 +495,46 @@ def _select_from_observations(
 
 
 def _select_from_taxonomy(
-    taxonomy: list[dict], history_codes: set[str], date_str: str
+    taxonomy: list[dict],
+    recency: list[str],
+    window: int,
+    date_str: str,
+    exclude: frozenset[str] = frozenset(),
+    notes: list[str] | None = None,
 ) -> dict | None:
-    filtered = [
-        sp for sp in taxonomy if sp.get("speciesCode") and sp["speciesCode"] not in history_codes
+    """Pick from the world list under the same clamped window as a pool.
+
+    Every species weighs the same here: the world list carries no counts,
+    so there is no rarity to bias towards. With eleven thousand species
+    the clamp never binds in practice, but it stays wired so this pool
+    cannot quietly develop rules of its own.
+    """
+    candidates = [
+        {
+            "speciesCode": sp["speciesCode"],
+            "comName": sp.get("comName", sp["speciesCode"]),
+            "sciName": sp.get("sciName", ""),
+            "total_count": 1,
+        }
+        for sp in taxonomy
+        if sp.get("speciesCode")
     ]
-    if not filtered:
-        filtered = taxonomy
-    seed = _date_seed(date_str, salt="global")
-    rng = random.Random(seed)
-    sp = rng.choice(filtered)
+    if not candidates:
+        return None
+
+    # `exclude` goes to the helper rather than being folded in above, for
+    # the same reason it does on the observations path: it must not change
+    # the measured supply, and therefore must not move the clamp.
+    selected = _clamp_and_pick(
+        candidates, recency, window, date_str,
+        salt="global", label="the world list", exclude=exclude, notes=notes,
+    )
+    if selected is None:
+        return None
     return {
-        "speciesCode": sp["speciesCode"],
-        "comName": sp.get("comName", sp["speciesCode"]),
-        "sciName": sp.get("sciName", ""),
+        "speciesCode": selected["speciesCode"],
+        "comName": selected["comName"],
+        "sciName": selected["sciName"],
     }
 
 
@@ -356,11 +560,14 @@ def _enrich_with_taxonomy(species: dict) -> dict:
 
 def _select_from_pool(
     pool: dict,
-    history_codes: set[str],
+    recency: list[str],
+    window: int,
     date_str: str,
     back: int,
     locale: str,
     cache_dir: Path | None,
+    exclude: frozenset[str] = frozenset(),
+    notes: list[str] | None = None,
 ) -> dict | None:
     pool_type = pool["type"]
     if pool_type in ("regional", "europe_random"):
@@ -370,7 +577,10 @@ def _select_from_pool(
         if not observations:
             logger.warning("No observations returned for region %s", region)
             return None
-        return _select_from_observations(observations, history_codes, date_str, pool["id"])
+        return _select_from_observations(
+            observations, recency, window, date_str, pool["id"],
+            exclude=exclude, notes=notes,
+        )
 
     if pool_type == "global_taxonomy":
         logger.info("Pool %s → global taxonomy", pool["id"])
@@ -379,7 +589,9 @@ def _select_from_pool(
         except requests.RequestException:
             logger.exception("Failed to fetch global taxonomy")
             return None
-        return _select_from_taxonomy(taxonomy, history_codes, date_str)
+        return _select_from_taxonomy(
+            taxonomy, recency, window, date_str, exclude=exclude, notes=notes,
+        )
 
     logger.warning("Unknown pool type: %s", pool_type)
     return None
@@ -387,21 +599,33 @@ def _select_from_pool(
 
 def select_species(
     config: dict,
-    history_codes: list[str],
+    published_codes: list[str],
     date_str: str,
     cache_dir: Path | None = None,
+    exclude: frozenset[str] = frozenset(),
+    notes: list[str] | None = None,
 ) -> dict:
     """Select the bird of the day.
 
-    Picks one weighted pool by date hash, queries it, and dedupes against
-    history. If that single attempt yields nothing (network error, empty
-    region, or every candidate already used), falls back **once** to the
-    global taxonomy pool — never an exhaustive cascade per plan §3.4.
+    ``published_codes`` is the whole publication history as species codes,
+    oldest first, repeats included. Everything the selection needs is
+    derived from it: which species the dedup window blocks, and how long
+    each has been away when the pool runs out and one has to come back.
+
+    ``exclude`` is rejected outright, before the window and the clamp. It
+    carries the codes a skip-policy re-roll has already tried today.
+
+    Picks one weighted pool by date hash and queries it. The clamp keeps
+    the pool's own least recently published quarter eligible rather than
+    let it come up empty, so the single global-taxonomy rescue below is
+    left for the cases it was really meant for: a network error, or a
+    region that answered with nothing at all.
     """
     pools = config["pools"]
     back = config.get("back_days", 14)
     locale = config.get("ebird_locale", "es")
-    history_set = set(history_codes)
+    recency = _recency_order(published_codes)
+    window = scaled_window(config, len(published_codes))
 
     # Load taxonomy upfront so we can enrich the final pick regardless of pool.
     try:
@@ -413,7 +637,8 @@ def select_species(
     logger.info("Selected pool: %s (weight=%s)", chosen_pool["id"], chosen_pool["weight"])
 
     result = _select_from_pool(
-        chosen_pool, history_set, date_str, back, locale, cache_dir
+        chosen_pool, recency, window, date_str, back, locale, cache_dir,
+        exclude=exclude, notes=notes,
     )
     if result:
         return _enrich_with_taxonomy(result)
@@ -430,7 +655,8 @@ def select_species(
         rescue_pool = {"id": "rescue", "type": "global_taxonomy"}
 
     result = _select_from_pool(
-        rescue_pool, history_set, date_str, back, locale, cache_dir
+        rescue_pool, recency, window, date_str, back, locale, cache_dir,
+        exclude=exclude, notes=notes,
     )
     if result:
         return _enrich_with_taxonomy(result)

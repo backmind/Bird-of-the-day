@@ -247,6 +247,91 @@ def _apply_description_policy(
     return desc, source
 
 
+def _publication_context(raw_entries: list[dict]) -> list[tuple[int, str]]:
+    """Per history entry, ``(ordinal, previous publication date)``.
+
+    The ordinal is how many times the species had already been published
+    before this entry, so a debut is 0. The date is the previous
+    publication's, or empty when there is none. Both are derived from
+    history rather than stored in it: nothing to migrate, and nothing that
+    can drift out of sync with the entries it describes.
+    """
+    context: list[tuple[int, str]] = []
+    seen: dict[str, tuple[int, str]] = {}
+    for raw in raw_entries:
+        code = raw.get("speciesCode") or ""
+        count, last_date = seen.get(code, (0, ""))
+        context.append((count, last_date))
+        if code:
+            seen[code] = (count + 1, raw.get("date", ""))
+    return context
+
+
+def _republished_note(
+    raw_entries: list[dict], species_code: str, common_name: str
+) -> str:
+    """Report line for a species that has been published before.
+
+    Empty on a debut, which is the overwhelming majority of runs: a line
+    that appears every day is a line nobody reads.
+    """
+    dates = [
+        e.get("date", "")
+        for e in raw_entries
+        if e.get("speciesCode") == species_code and e.get("date")
+    ]
+    if not dates:
+        return ""
+    return f"republished: {common_name} last appeared on {dates[-1]}"
+
+
+def _entries_newest_first(raw_entries: list[dict]):
+    """History newest first, each entry with its publication facts.
+
+    Yields ``(raw, publication_number, ordinal, previous_date)``. The
+    context is aligned to history in publication order while both callers
+    walk it backwards, so the index mapping lives here once rather than
+    being re-derived at every call site.
+    """
+    context = _publication_context(raw_entries)
+    total = len(raw_entries)
+    for i, raw in enumerate(reversed(raw_entries)):
+        number = total - i
+        ordinal, previous_date = context[number - 1]
+        yield raw, number, ordinal, previous_date
+
+
+def _seen_asset_ids(raw_entries: list[dict], species_code: str) -> frozenset[str]:
+    """Photographs this species has already been published with."""
+    ids = (
+        image_fetcher.asset_id_from_url(e.get("imageUrl"))
+        for e in raw_entries
+        if e.get("speciesCode") == species_code
+    )
+    return frozenset(i for i in ids if i)
+
+
+def _image_for(raw: dict, code: str, ordinal: int) -> image_fetcher.ImageResult:
+    """The photograph a history entry was published with.
+
+    Prefers the per-publication cache, which carries the asset id and the
+    search URL. Falls back to what history recorded, the only source for
+    entries published before photographs were cached per publication.
+    """
+    cached = image_fetcher.load_cached_image(code, str(CACHE_DIR), ordinal=ordinal)
+    if cached is not None:
+        return cached
+    return image_fetcher.ImageResult(
+        url=raw.get("imageUrl"),
+        asset_id=None,
+        photographer=raw.get("photographer", ""),
+        attribution=raw.get(
+            "attribution", "Macaulay Library / Cornell Lab of Ornithology"
+        ),
+        search_url=image_fetcher.ml_search_url(code),
+    )
+
+
 def _build_site_entries(
     history: dict, description_policy: str = "foreign_fallback"
 ) -> list[site_builder.SiteEntry]:
@@ -257,27 +342,21 @@ def _build_site_entries(
     ``description_policy`` argument controls how empty descriptions are
     handled: ``foreign_fallback`` substitutes the rejected foreign text,
     ``strict`` (and ``skip`` from this rendering perspective) leaves them
-    empty so the layout shows the em-dash placeholder.
+    empty so the layout shows the em-dash placeholder. Each entry's
+    publication ordinal and previous publication date are derived from the
+    whole history and threaded into ``SiteEntry.previous_date``.
     """
     entries: list[site_builder.SiteEntry] = []
     cache_dir = str(CACHE_DIR)
     raw_entries = history.get("entries", [])
-    total = len(raw_entries)
-    for i, raw in enumerate(reversed(raw_entries)):
+    for raw, publication_number, ordinal, previous_date in _entries_newest_first(
+        raw_entries
+    ):
         code = raw.get("speciesCode")
         if not code:
             continue
-        publication_number = total - i
 
-        image = image_fetcher.load_cached_image(code, cache_dir)
-        if image is None:
-            image = image_fetcher.ImageResult(
-                url=raw.get("imageUrl"),
-                asset_id=None,
-                photographer=raw.get("photographer", ""),
-                attribution=raw.get("attribution", "Macaulay Library / Cornell Lab of Ornithology"),
-                search_url=f"https://search.macaulaylibrary.org/catalog?taxonCode={code}&mediaType=photo&sort=rating_rank_desc",
-            )
+        image = _image_for(raw, code, ordinal)
 
         content = content_scraper.load_cached_content(code, cache_dir)
         if content is None:
@@ -320,6 +399,7 @@ def _build_site_entries(
                 iucn_birdlife_url=content.iucn_birdlife_url,
                 enriched_prose=enriched.prose if enriched else "",
                 enriched_identification=enriched.identification if enriched else None,
+                previous_date=previous_date,
             )
         )
     return entries
@@ -434,17 +514,17 @@ def _rebuild_feed(
     )
 
     all_feed_entries: list[feed_builder.FeedEntry] = []
-    total = len(history["entries"])
-    for i, raw in enumerate(reversed(history["entries"])):
+    for raw, publication_number, ordinal, previous_date in _entries_newest_first(
+        history["entries"]
+    ):
         fc = raw["speciesCode"]
-        publication_number = total - i
         # The item's own destination on our site. Without feed_link no
         # absolute URL can be formed, and both the item link and the
         # photo fall back to eBird.
         species_page_abs = (
             urls.absolute(feed_link, urls.species_url(fc)) if feed_link else ""
         )
-        fi = image_fetcher.load_cached_image(fc, str(CACHE_DIR))
+        fi = _image_for(raw, fc, ordinal)
         fco = content_scraper.load_cached_content(fc, str(CACHE_DIR))
         if fco is None:
             fco = content_scraper.SpeciesContent(
@@ -466,9 +546,9 @@ def _rebuild_feed(
             species_code=fc,
             common_name=raw["comName"],
             scientific_name=raw["sciName"],
-            image_url=fi.url if fi else None,
-            image_attribution=fi.attribution if fi else "",
-            ml_search_url=fi.search_url if fi else "",
+            image_url=fi.url,
+            image_attribution=fi.attribution,
+            ml_search_url=fi.search_url,
             description=fd,
             description_source=fs,
             bow_intro=fco.bow_intro,
@@ -490,6 +570,7 @@ def _rebuild_feed(
             number=publication_number,
             date=raw["date"],
             species_page_url=species_page_abs,
+            previous_date=previous_date,
         )
         fguid = urls.feed_guid(fc, raw["date"])
         fpub = existing_pub_by_guid.get(fguid, format_datetime(now))
@@ -499,9 +580,9 @@ def _rebuild_feed(
                 common_name=raw["comName"],
                 scientific_name=raw["sciName"],
                 description_html=fhtml,
-                image_url=fi.url if fi else None,
-                image_attribution=fi.attribution if fi else "",
-                ml_search_url=fi.search_url if fi else "",
+                image_url=fi.url,
+                image_attribution=fi.attribution,
+                ml_search_url=fi.search_url,
                 pub_date=fpub,
                 guid=fguid,
                 link=species_page_abs,
@@ -566,11 +647,12 @@ def _report_feed(feed_result: dict, report: run_report.RunReport) -> None:
 
 def _select_and_fetch(
     config: dict,
-    history_codes: list[str],
+    history_entries: list[dict],
     date_str: str,
     catalog: i18n.Catalog,
     ebird_locale: str,
     description_policy: str,
+    notes: list[str] | None = None,
 ) -> tuple[dict, image_fetcher.ImageResult, content_scraper.SpeciesContent]:
     """Run the species selection loop with image + content fetching.
 
@@ -578,9 +660,17 @@ def _select_and_fetch(
     we re-roll up to ``max_skip_retries`` times until a species with text
     in the configured language is found.
 
+    ``history_entries`` is the whole history, which the selection reads as
+    a recency ordering and the image fetch reads to avoid repeating a
+    photograph. ``notes`` collects the selection diagnostics the run
+    report prints.
+
     Returns ``(species_dict, image_result, content_result)``.
     """
     max_skip = int(config.get("max_skip_retries", 50))
+    published_codes = [
+        e["speciesCode"] for e in history_entries if e.get("speciesCode")
+    ]
     session = image_fetcher.new_session(
         accept_language=catalog.accept_language_header
     )
@@ -591,7 +681,8 @@ def _select_and_fetch(
     for attempt in range(max_skip + 1):
         logger.info("Selecting bird of the day for %s", date_str)
         species = ebird_client.select_species(
-            config, history_codes + tried_codes, date_str, cache_dir=CACHE_DIR,
+            config, published_codes, date_str, cache_dir=CACHE_DIR,
+            exclude=frozenset(tried_codes), notes=notes,
         )
         species_code = species["speciesCode"]
         logger.info(
@@ -599,13 +690,20 @@ def _select_and_fetch(
             species["comName"], species["sciName"], species_code,
         )
 
-        image = image_fetcher.load_cached_image(species_code, str(CACHE_DIR))
+        ordinal = published_codes.count(species_code)
+        image = image_fetcher.load_cached_image(
+            species_code, str(CACHE_DIR), ordinal=ordinal
+        )
         if image is None:
             logger.info("Fetching image for %s", species_code)
             image = image_fetcher.fetch_image(
-                species_code, session=session, locale=ebird_locale
+                species_code, session=session, locale=ebird_locale,
+                ordinal=ordinal,
+                seen_asset_ids=_seen_asset_ids(history_entries, species_code),
             )
-            image_fetcher.save_cached_image(species_code, image, str(CACHE_DIR))
+            image_fetcher.save_cached_image(
+                species_code, image, str(CACHE_DIR), ordinal=ordinal
+            )
         else:
             logger.info("Using cached image for %s", species_code)
 
@@ -821,17 +919,25 @@ def main() -> None:
             return
 
         # 1. Select species, fetch image + content.
-        dedup_window = config.get("dedup_window", config.get("max_history", 50))
-        history_codes = [e["speciesCode"] for e in history["entries"][-dedup_window:]]
-
+        selection_notes: list[str] = []
         species, image, content = _select_and_fetch(
-            config, history_codes, date_str, catalog, ebird_locale,
-            description_policy,
+            config, history["entries"], date_str, catalog, ebird_locale,
+            description_policy, notes=selection_notes,
         )
         species_code = species["speciesCode"]
         common_name = species["comName"]
         scientific_name = species["sciName"]
         report.info(f"species: {common_name} ({scientific_name}) [{species_code}]")
+        # Deduplicated: under the skip policy every re-roll runs the whole
+        # selection again, so the same clamp note would otherwise be
+        # printed once per attempt.
+        for note in dict.fromkeys(selection_notes):
+            report.info(note)
+        republished = _republished_note(
+            history["entries"], species_code, common_name
+        )
+        if republished:
+            report.info(republished)
 
         # 2. LLM enrichment: always attempted when an LLM is configured.
         if llm_enricher.is_configured(config):

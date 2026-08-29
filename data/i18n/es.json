@@ -29,6 +29,7 @@
   "archive.months_heading": "Todos los meses",
 
   "species.history_heading": "Historial de publicación",
+  "republished.chip_template": "Ya publicada: {date}",
 
   "identification.label": "Identificación en campo",
   "iucn.LC": "Preocupación Menor",

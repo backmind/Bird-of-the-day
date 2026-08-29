@@ -162,6 +162,131 @@ class TestOrdering:
         ] == ["ccc", "bbb", "aaa"]
 
 
+class TestRepublicationContext:
+    """A species published twice is the one history shape an inverted
+    reverse-index mapping cannot fake: swapping which occurrence gets
+    which context still produces one ordinal-0 and one ordinal-1 entry,
+    just attached to the wrong publication, so only checking both sides
+    together against a known-correct pairing can catch it.
+
+    ``_rebuild_feed`` no longer computes the mapping itself, it consumes
+    ``generate._entries_newest_first``; wrapping that shared helper with a
+    recording spy observes the exact ``(ordinal, previous_date)`` pairs it
+    handed to the loop for this call, since neither value is threaded into
+    ``FeedEntry`` yet (that is Task 5's job).
+    """
+
+    HISTORY = _history(("aaa", "2026-08-01"), ("aaa", "2026-08-15"))
+
+    def _history_with_distinct_photos(self) -> dict:
+        # Two occurrences of the same species, each recorded with its own
+        # photograph. Nothing is cached per ordinal, so `_image_for` falls
+        # back to exactly what each history entry recorded: the two items
+        # must not end up sharing one entry's photo (a raw-pairing bug
+        # inside the loop, independent from the ordinal arithmetic that
+        # the next test exercises).
+        return {
+            "entries": [
+                {**raw, "imageUrl": f"https://cdn/asset/{i}/1200"}
+                for i, raw in enumerate(self.HISTORY["entries"], start=1)
+            ]
+        }
+
+    def test_the_newer_publication_gets_ordinal_one_and_the_older_date(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(monkeypatch, tmp_path)
+        seen: dict[str, tuple[int, str]] = {}
+        real_entries_newest_first = generate._entries_newest_first
+
+        def spy(raw_entries):
+            for raw, number, ordinal, previous_date in real_entries_newest_first(
+                raw_entries
+            ):
+                seen[raw["date"]] = (ordinal, previous_date)
+                yield raw, number, ordinal, previous_date
+
+        monkeypatch.setattr(generate, "_entries_newest_first", spy)
+
+        _rebuild(tmp_path, self.HISTORY, _config())
+
+        assert seen["2026-08-15"] == (1, "2026-08-01")
+        assert seen["2026-08-01"] == (0, "")
+
+    def test_each_publication_keeps_the_photograph_its_own_entry_recorded(
+        self, tmp_path, monkeypatch
+    ):
+        # ``load_existing_feed`` never repopulates ``FeedEntry.image_url``
+        # (round-tripping only needs the guid, pubDate and rendered body),
+        # so the photo actually used has to be read from the rendered
+        # HTML body itself, where ``build_entry_html`` embeds it as an
+        # ``<img src=...>``.
+        _isolate(monkeypatch, tmp_path)
+        history = self._history_with_distinct_photos()
+        _rebuild(tmp_path, history, _config())
+
+        by_guid = {e.guid: e.description_html for e in _stored_feed(tmp_path)}
+        assert "https://cdn/asset/1/1200" in by_guid[
+            urls.feed_guid("aaa", "2026-08-01")
+        ]
+        assert "https://cdn/asset/2/1200" in by_guid[
+            urls.feed_guid("aaa", "2026-08-15")
+        ]
+        assert "https://cdn/asset/2/1200" not in by_guid[
+            urls.feed_guid("aaa", "2026-08-01")
+        ]
+        assert "https://cdn/asset/1/1200" not in by_guid[
+            urls.feed_guid("aaa", "2026-08-15")
+        ]
+
+    def test_each_publication_gets_the_photograph_cached_for_its_own_ordinal(
+        self, tmp_path, monkeypatch
+    ):
+        # Unlike the history-fallback test above, this one goes through
+        # `_image_for`'s cache branch, which is keyed by ordinal: an
+        # inverted mapping hands the debut's cache to the repeat and vice
+        # versa, so this is the one photo-based assertion that only a
+        # correct ordinal can produce.
+        from scripts import image_fetcher
+
+        _isolate(monkeypatch, tmp_path)
+        cache_dir = str(generate.CACHE_DIR)
+        image_fetcher.save_cached_image(
+            "aaa",
+            image_fetcher.ImageResult(
+                url="https://cdn/asset/debut/1200", asset_id="debut",
+                photographer="", attribution="Macaulay Library",
+                search_url="s",
+            ),
+            cache_dir, ordinal=0,
+        )
+        image_fetcher.save_cached_image(
+            "aaa",
+            image_fetcher.ImageResult(
+                url="https://cdn/asset/repeat/1200", asset_id="repeat",
+                photographer="", attribution="Macaulay Library",
+                search_url="s",
+            ),
+            cache_dir, ordinal=1,
+        )
+
+        _rebuild(tmp_path, self.HISTORY, _config())
+
+        by_guid = {e.guid: e.description_html for e in _stored_feed(tmp_path)}
+        assert "https://cdn/asset/debut/1200" in by_guid[
+            urls.feed_guid("aaa", "2026-08-01")
+        ]
+        assert "https://cdn/asset/repeat/1200" in by_guid[
+            urls.feed_guid("aaa", "2026-08-15")
+        ]
+        assert "https://cdn/asset/repeat/1200" not in by_guid[
+            urls.feed_guid("aaa", "2026-08-01")
+        ]
+        assert "https://cdn/asset/debut/1200" not in by_guid[
+            urls.feed_guid("aaa", "2026-08-15")
+        ]
+
+
 class TestPubDateMerge:
     """pubDates are read from both files, and either one can be blank.
 
