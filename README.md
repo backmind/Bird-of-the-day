@@ -238,8 +238,9 @@ Copy `.github/bird-of-the-day.yml.example` to
 - Manually from the **Actions → Bird of the Day → Run workflow** tab.
 
 The workflow `git add`s `feed.xml`, `history.json`, `index.html`,
-`archive.html`, `cache/` and `maps/`, then commits with a message of the
-form `🐦 Bird of the day: 2026-04-11` and pushes to the default branch.
+`archive.html`, `cache/`, `maps/` and `assets/`, then commits with a
+message of the form `🐦 Bird of the day: 2026-04-11` and pushes to the
+default branch.
 
 Every run writes a summary to the job log, whether or not anything is
 degraded. In GitHub Actions specifically, each degraded step (a failed
