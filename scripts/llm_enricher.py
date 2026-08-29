@@ -41,6 +41,13 @@ _SYSTEM_PROMPT = (
     "to a general audience without dumbing it down. You never fabricate facts."
 )
 
+_JUDGE_SYSTEM_PROMPT = (
+    "You are a meticulous ornithology fact-checker and editor reviewing "
+    "drafts for a Bird of the Day publication. You never let fabricated "
+    "or doubtful claims pass, and you preserve the author's warm, "
+    "observational voice."
+)
+
 
 def _resolve_models(config: dict) -> list[str]:
     """Return the configured model chain, newest config shape first.
@@ -297,6 +304,38 @@ def _call_llm(messages: list[dict], config: dict) -> dict | None:
     return None
 
 
+def _judge_content(
+    result: dict,
+    english_name: str,
+    scientific_name: str,
+    content: SpeciesContent,
+    language_name: str,
+    config: dict,
+) -> dict | None:
+    """Second-pass review of an accepted draft. Returns the judge verdict
+    dict (``{"verdict": "pass"}`` or ``{"verdict": "revise", ...}``), or
+    ``None`` when the judge call itself failed."""
+    context = _build_context(content)
+    user = (
+        f"Review this draft entry about {english_name} ({scientific_name}).\n\n"
+        f"Reference data:\n{context}\n\n"
+        f"Draft (JSON):\n{json.dumps(result, ensure_ascii=False)}\n\n"
+        "Check that: every factual claim is supported by the reference "
+        "data or is well-established knowledge about this species; the "
+        f"tone is warm and observational; the text is entirely in "
+        f"{language_name}.\n"
+        'Respond with valid JSON: {"verdict": "pass"} if acceptable, or '
+        '{"verdict": "revise", "prose": "...", "identification": ["..."]} '
+        "with a corrected draft that keeps the same format rules "
+        "(2 paragraphs, 800-1800 characters, 3-5 bullets)."
+    )
+    messages = [
+        {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+    return _call_llm(messages, config)
+
+
 def enrich_species(
     species_code: str,
     common_name: str,
@@ -379,6 +418,27 @@ def enrich_species(
             return None
     for issue in soft:
         logger.warning("LLM output for %s: %s", species_code, issue)
+
+    if config.get("llm", {}).get("judge"):
+        judged = _judge_content(
+            result, english_name, scientific_name, content,
+            language_name, config,
+        )
+        if judged and judged.get("verdict") == "revise":
+            hard_j, _soft_j = llm_validator.validate_enrichment(
+                judged, catalog.language
+            )
+            if not hard_j:
+                logger.info("Judge revised the draft for %s", species_code)
+                result = {
+                    "prose": judged["prose"],
+                    "identification": judged["identification"],
+                }
+            else:
+                logger.warning(
+                    "Judge revision for %s invalid (%s); keeping original",
+                    species_code, "; ".join(hard_j),
+                )
 
     prose = result["prose"]
     identification = [b.strip() for b in result["identification"]]
