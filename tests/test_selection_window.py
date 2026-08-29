@@ -1,7 +1,5 @@
 """Ventana escalada y clamp por oferta: el clamp es la válvula."""
 
-import math
-
 from scripts.ebird_client import (
     WINDOW_SUPPLY_FRACTION,
     _effective_window,
@@ -62,25 +60,6 @@ def test_weighted_pick_is_deterministic():
     assert first["speciesCode"] == second["speciesCode"]
 
 
-def test_effective_window_never_empties_and_never_drops_below_a_quarter():
-    """The clamp is the valve, so this property must never regress.
-
-    Blocking only the most recently published ``effective`` species, with
-    a recency list that covers every one of today's candidates, always
-    leaves at least a quarter of the supply standing. That guarantee is
-    what makes a second, explicit recycling step unnecessary: reintroduce
-    one and this test is the reminder that the branch it feeds is dead.
-    """
-    for supply in (1, 3, 4, 8, 60, 200):
-        codes = [f"sp{i}" for i in range(supply)]
-        recency = list(reversed(codes))  # covers every candidate
-        effective = _effective_window(supply * 100, supply)
-        blocked = set(recency[:effective])
-        remaining = [c for c in codes if c not in blocked]
-        assert len(remaining) > 0
-        assert len(remaining) >= math.ceil(supply / 4)
-
-
 def _obs(code, count=1):
     return {
         "speciesCode": code,
@@ -90,11 +69,59 @@ def _obs(code, count=1):
     }
 
 
-def test_observations_exclude_the_blocked_window():
-    observations = [_obs("a"), _obs("b"), _obs("c"), _obs("d")]
-    # Ventana 2 sobre oferta 4: el clamp la deja en 3, bloquea c, b, a.
+def test_select_from_observations_never_empties_for_any_supply():
+    """The clamp is the valve, so this property must never regress.
+
+    Pinned through the real selection function, not by re-deriving
+    ``_effective_window``'s arithmetic (that arithmetic already has its
+    own unit tests above): for every supply size, with a recency list
+    that covers every candidate and a window far larger than the supply,
+    a species always comes back, and it always belongs to the pool.
+    """
+    for supply in (1, 3, 4, 8, 60, 200):
+        codes = [f"sp{i}" for i in range(supply)]
+        observations = [_obs(c) for c in codes]
+        recency = list(reversed(codes))  # covers every candidate
+        result = _select_from_observations(
+            observations, recency, supply * 100, "2026-04-13", "madrid"
+        )
+        assert result is not None
+        assert result["speciesCode"] in set(codes)
+
+
+def test_select_from_observations_exclude_cannot_empty_the_candidate_set():
+    """Even with most of the pool excluded, the clamp still finds one."""
+    codes = [f"sp{i}" for i in range(8)]
+    observations = [_obs(c) for c in codes]
+    recency = list(reversed(codes))
+    exclude = frozenset(codes[:-1])  # only the last species is left
     result = _select_from_observations(
-        observations, ["c", "b", "a"], 2, "2026-04-13", "madrid"
+        observations, recency, 800, "2026-04-13", "madrid", exclude=exclude
+    )
+    assert result is not None
+    assert result["speciesCode"] == codes[-1]
+
+
+def test_observations_window_two_leaves_only_a_and_d_eligible():
+    observations = [_obs("a"), _obs("b"), _obs("c"), _obs("d")]
+    # Ventana 2 sobre oferta 4: effective = min(2, int(4 * 0.75) = 3) = 2,
+    # sin clamp. Bloqueados los dos mas recientes, c y b; elegibles a y d.
+    dates = [f"2026-04-{day:02d}" for day in range(1, 15)]
+    results = {
+        _select_from_observations(
+            observations, ["c", "b", "a"], 2, date, "madrid"
+        )["speciesCode"]
+        for date in dates
+    }
+    assert results == {"a", "d"}
+
+
+def test_observations_window_three_forces_d_with_no_draw():
+    observations = [_obs("a"), _obs("b"), _obs("c"), _obs("d")]
+    # Ventana 3 sobre oferta 4: effective = min(3, int(4 * 0.75) = 3) = 3,
+    # bloquea c, b y a; solo queda d, sin necesidad de sorteo.
+    result = _select_from_observations(
+        observations, ["c", "b", "a"], 3, "2026-04-13", "madrid"
     )
     assert result["speciesCode"] == "d"
 

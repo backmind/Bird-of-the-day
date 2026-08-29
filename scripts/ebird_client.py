@@ -345,6 +345,60 @@ def _weighted_pick(candidates: list[dict], date_str: str, salt: str) -> dict:
     return rng.choices(candidates, weights=scores, k=1)[0]
 
 
+def _clamp_and_pick(
+    candidates: list[dict],
+    recency: list[str],
+    window: int,
+    date_str: str,
+    salt: str,
+    label: str,
+    notes: list[str] | None = None,
+) -> dict:
+    """Clamp the dedup window to supply, then pick with rarity bias.
+
+    Shared by every pool type so the clamp note, the exhaustion note, and
+    the weighted draw exist in exactly one place. Two call sites drifted
+    once already (the taxonomy path silently dropped the clamp note);
+    this is the fix for that class of bug, not just this one instance.
+
+    ``candidates`` must be non-empty; callers check that first, since an
+    empty pool is a "no observations at all" case, not a clamp/valve one.
+    ``label`` names the pool in the notes ("pool madrid", "the world
+    list"); ``salt`` seeds the draw and is kept distinct per pool so
+    today's picks do not change.
+    """
+    supply = len(candidates)
+    effective = _effective_window(window, supply)
+    if effective < window:
+        _note(
+            notes,
+            f"dedup window clamped from {window} to {effective}: "
+            f"{label} offers {supply} species today",
+        )
+
+    # Blocking only the most recently published `effective` species, where
+    # `effective <= WINDOW_SUPPLY_FRACTION * supply`, always leaves the
+    # least recently published quarter (or more) standing, never-published
+    # species among them first. That is the valve: there is no second path
+    # to fall back to, because the clamp already is one.
+    blocked = set(recency[:effective])
+    eligible = [c for c in candidates if c["speciesCode"] not in blocked]
+
+    # Exhaustion is a pure diagnostic here, not a branch: it flags the rare
+    # case where the raw, unclamped window would have blocked every species
+    # this pool offers today, meaning today's pick is a republication. It
+    # changes nothing about which candidates are eligible.
+    raw_blocked = set(recency[:window])
+    if all(c["speciesCode"] in raw_blocked for c in candidates):
+        _note(
+            notes,
+            f"{label} has no unpublished species left; "
+            f"today's pick is a republication",
+        )
+
+    return _weighted_pick(eligible, date_str, salt)
+
+
 def _pick_pool(pools: list[dict], date_str: str) -> dict:
     seed = _date_seed(date_str)
     rng = random.Random(seed)
@@ -395,36 +449,10 @@ def _select_from_observations(
     if not species_map:
         return None
 
-    supply = len(species_map)
-    effective = _effective_window(window, supply)
-    if effective < window:
-        _note(
-            notes,
-            f"dedup window clamped from {window} to {effective}: "
-            f"pool {pool_id} offers {supply} species today",
-        )
-
-    # Blocking only the most recently published `effective` species, where
-    # `effective <= WINDOW_SUPPLY_FRACTION * supply`, always leaves the
-    # least recently published quarter (or more) standing, never-published
-    # species among them first. That is the valve: there is no second path
-    # to fall back to, because the clamp already is one.
-    blocked = set(recency[:effective])
-    candidates = [c for c in species_map.values() if c["speciesCode"] not in blocked]
-
-    # Exhaustion is a pure diagnostic here, not a branch: it flags the rare
-    # case where the raw, unclamped window would have blocked every species
-    # this pool offers today, meaning today's pick is a republication. It
-    # changes nothing about which candidates are eligible.
-    raw_blocked = set(recency[:window])
-    if all(code in raw_blocked for code in species_map):
-        _note(
-            notes,
-            f"pool {pool_id} has no unpublished species left; "
-            f"today's pick is a republication",
-        )
-
-    selected = _weighted_pick(candidates, date_str, pool_id)
+    selected = _clamp_and_pick(
+        list(species_map.values()), recency, window, date_str,
+        salt=pool_id, label=f"pool {pool_id}", notes=notes,
+    )
     return {
         "speciesCode": selected["speciesCode"],
         "comName": selected["comName"],
@@ -460,19 +488,10 @@ def _select_from_taxonomy(
     if not candidates:
         return None
 
-    effective = _effective_window(window, len(candidates))
-    blocked = set(recency[:effective])
-    eligible = [c for c in candidates if c["speciesCode"] not in blocked]
-
-    raw_blocked = set(recency[:window])
-    if all(c["speciesCode"] in raw_blocked for c in candidates):
-        _note(
-            notes,
-            "the world list has no unpublished species left; "
-            "today's pick is a republication",
-        )
-
-    selected = _weighted_pick(eligible, date_str, "global")
+    selected = _clamp_and_pick(
+        candidates, recency, window, date_str,
+        salt="global", label="the world list", notes=notes,
+    )
     return {
         "speciesCode": selected["speciesCode"],
         "comName": selected["comName"],
