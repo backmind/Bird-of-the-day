@@ -89,8 +89,15 @@ def test_select_from_observations_never_empties_for_any_supply():
         assert result["speciesCode"] in set(codes)
 
 
-def test_select_from_observations_exclude_cannot_empty_the_candidate_set():
-    """Even with most of the pool excluded, the clamp still finds one."""
+def test_select_from_observations_returns_none_when_exclude_empties_the_survivors():
+    """Exclude is applied after the window, on the pool's real supply.
+
+    The window here leaves only "sp0" and "sp1" standing; excluding both
+    of them (a skip-policy re-roll that already tried them) legitimately
+    empties the eligible set. The function must not paper over that by
+    shrinking supply to make room -- it returns ``None`` so the caller's
+    global-taxonomy rescue takes over.
+    """
     codes = [f"sp{i}" for i in range(8)]
     observations = [_obs(c) for c in codes]
     recency = list(reversed(codes))
@@ -98,8 +105,34 @@ def test_select_from_observations_exclude_cannot_empty_the_candidate_set():
     result = _select_from_observations(
         observations, recency, 800, "2026-04-13", "madrid", exclude=exclude
     )
-    assert result is not None
-    assert result["speciesCode"] == codes[-1]
+    assert result is None
+
+
+def test_supply_is_measured_before_exclude_not_after():
+    """Supply is what the pool offers today, not what survives exclude.
+
+    A skip-policy re-roll's exclude must not shrink supply -- and with it
+    the clamped window -- on every retry: that is exactly the
+    contamination the dedup window was built to remove. The clamp note
+    (and the effective window it reports) must be identical whether or
+    not species have already been excluded.
+    """
+    codes = [f"sp{i}" for i in range(8)]
+    observations = [_obs(c) for c in codes]
+    recency = list(reversed(codes))  # every candidate has been published
+    notes_bare: list[str] = []
+    notes_excluded: list[str] = []
+    _select_from_observations(
+        observations, recency, 800, "2026-04-13", "madrid", notes=notes_bare
+    )
+    _select_from_observations(
+        observations, recency, 800, "2026-04-13", "madrid",
+        exclude=frozenset(codes[:5]), notes=notes_excluded,
+    )
+    clamp_bare = next(n for n in notes_bare if "clamped" in n)
+    clamp_excluded = next(n for n in notes_excluded if "clamped" in n)
+    assert clamp_bare == clamp_excluded
+    assert "offers 8 species today" in clamp_bare
 
 
 def test_observations_window_two_leaves_only_a_and_d_eligible():

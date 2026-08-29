@@ -352,8 +352,9 @@ def _clamp_and_pick(
     date_str: str,
     salt: str,
     label: str,
+    exclude: frozenset[str] = frozenset(),
     notes: list[str] | None = None,
-) -> dict:
+) -> dict | None:
     """Clamp the dedup window to supply, then pick with rarity bias.
 
     Shared by every pool type so the clamp note, the exhaustion note, and
@@ -366,6 +367,15 @@ def _clamp_and_pick(
     ``label`` names the pool in the notes ("pool madrid", "the world
     list"); ``salt`` seeds the draw and is kept distinct per pool so
     today's picks do not change.
+
+    ``exclude`` is a skip-policy re-roll's already-tried codes, not part
+    of what the pool offers: it is applied only after the window has
+    picked the eligible set, never folded into ``candidates`` or
+    ``supply``. Folding it in earlier would shrink supply, and therefore
+    the clamped window, on every retry for a reason that has nothing to
+    do with today's dedup pressure. Returns ``None`` when ``exclude``
+    empties what the window left standing, so the caller's rescue path
+    can take over instead of failing here.
     """
     supply = len(candidates)
     effective = _effective_window(window, supply)
@@ -382,7 +392,10 @@ def _clamp_and_pick(
     # species among them first. That is the valve: there is no second path
     # to fall back to, because the clamp already is one.
     blocked = set(recency[:effective])
-    eligible = [c for c in candidates if c["speciesCode"] not in blocked]
+    eligible = [
+        c for c in candidates
+        if c["speciesCode"] not in blocked and c["speciesCode"] not in exclude
+    ]
 
     # Exhaustion is a pure diagnostic here, not a branch: it flags the rare
     # case where the raw, unclamped window would have blocked every species
@@ -396,6 +409,8 @@ def _clamp_and_pick(
             f"today's pick is a republication",
         )
 
+    if not eligible:
+        return None
     return _weighted_pick(eligible, date_str, salt)
 
 
@@ -431,11 +446,17 @@ def _select_from_observations(
     The window is applied here, not by the caller, because clamping it
     needs to know how many species this pool actually offers today, and
     that is only known once the region has answered.
+
+    ``exclude`` never enters the aggregation: supply is what the pool
+    offers today, full stop, and folding a skip-policy re-roll's
+    already-tried codes into it here would shrink supply, and therefore
+    the clamped window, on every retry. It is applied downstream, in
+    ``_clamp_and_pick``, after the window has picked its eligible set.
     """
     species_map: dict[str, dict] = {}
     for obs in observations:
         code = obs.get("speciesCode")
-        if not code or code in exclude:
+        if not code:
             continue
         if code not in species_map:
             species_map[code] = {
@@ -451,8 +472,10 @@ def _select_from_observations(
 
     selected = _clamp_and_pick(
         list(species_map.values()), recency, window, date_str,
-        salt=pool_id, label=f"pool {pool_id}", notes=notes,
+        salt=pool_id, label=f"pool {pool_id}", exclude=exclude, notes=notes,
     )
+    if selected is None:
+        return None
     return {
         "speciesCode": selected["speciesCode"],
         "comName": selected["comName"],
