@@ -129,8 +129,10 @@ def build_entry_html(
         parts.append(
             f"<p><small><em>© {_esc(image_attribution)}</em></small></p>"
         )
-    else:
+    elif ml_search_url:
         parts.append(f'<p><a href="{_esc(ml_search_url)}">Macaulay Library</a></p>')
+    else:
+        parts.append("<p>Macaulay Library</p>")
 
     # Name + scientific name.
     parts.append(
@@ -217,13 +219,16 @@ def build_entry_html(
     if wikipedia_url:
         wiki_label = "Wikipedia"
         if wikipedia_language and wikipedia_language != catalog.language:
-            wiki_label = f"Wikipedia ({wikipedia_language})"
+            wiki_label = f"Wikipedia ({_esc(wikipedia_language)})"
         link_parts.append(f'<a href="{_esc(wikipedia_url)}">{wiki_label}</a>')
     link_parts.append(
         f'<a href="https://birdsoftheworld.org/bow/species/{code_e}'
         '/cur/introduction">Birds of the World</a>'
     )
-    link_parts.append(f'<a href="{_esc(ml_search_url)}">Macaulay Library</a>')
+    if ml_search_url:
+        link_parts.append(f'<a href="{_esc(ml_search_url)}">Macaulay Library</a>')
+    else:
+        link_parts.append("Macaulay Library")
     parts.append(f'<p><small>{" · ".join(link_parts)}</small></p>')
 
     return "\n".join(parts)

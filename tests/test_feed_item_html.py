@@ -123,6 +123,32 @@ class TestMap:
         assert "<figure" not in _html()
 
 
+class TestEscaping:
+    def test_map_target_escapes_query_string_exactly_once(self):
+        html = _html(
+            distribution_map_url="https://gbif.example/d.png?a=1&b=2",
+            gbif_taxon_key=None,
+        )
+        assert 'href="https://gbif.example/d.png?a=1&amp;b=2"' in html
+        assert "&amp;amp;" not in html
+
+    def test_wikipedia_language_is_escaped(self):
+        html = _html(
+            wikipedia_url="https://en.wikipedia.org/wiki/Turdus_merula",
+            wikipedia_language="<b>en",
+        )
+        assert "<b>en" not in html
+        assert "&lt;b&gt;en" in html
+
+
+class TestNoPhotoNoSearchUrl:
+    def test_no_dead_links_when_photo_and_search_url_are_both_missing(self):
+        html = _html(image_url=None, ml_search_url="")
+        assert 'href=""' not in html
+        assert "<p>Macaulay Library</p>" in html
+        assert "Macaulay Library</a>" not in html
+
+
 class TestFallbackDescription:
     def test_scraped_description_renders_without_a_heading(self):
         html = _html(
