@@ -362,9 +362,12 @@ def _rebuild_feed(
         str(CACHE_DIR),
         MAPS_DIR,
     )
-    basemap_url = (
-        f"{feed_link.rstrip('/')}/assets/basemap.png" if feed_link else ""
-    )
+    # The feed needs an absolute URL, so it cannot reuse the site's
+    # root-relative path directly; it still goes through urls for both
+    # halves, or a move of the asset would 404 every item's map layer.
+    # An unconfigured feed_link means no absolute URL can be formed at
+    # all, and the feed renders the density layer on its own.
+    basemap_url = urls.absolute(feed_link, urls.BASEMAP) if feed_link else ""
 
     all_feed_entries: list[feed_builder.FeedEntry] = []
     for raw in reversed(history["entries"]):
@@ -563,11 +566,18 @@ def main() -> None:
     ebird_locale = config.get("ebird_locale") or catalog.ebird_locale
     config["ebird_locale"] = ebird_locale
 
+    # The English taxonomy is the name linker's first pass. Losing it
+    # degrades every page it renders, so the outcome is carried in a flag
+    # instead of only in the log: the already-published rebuild below
+    # refuses to republish on it, and the run report has to say why.
+    linker_ok = True
     try:
         english_name_index = ebird_client.get_english_name_index(cache_dir=CACHE_DIR)
     except requests.RequestException:
         logger.warning("Could not load English taxonomy; name linker disabled")
+        report.warn("taxonomy unavailable: the name linker is disabled this run")
         english_name_index = {}
+        linker_ok = False
 
     description_policy = config.get("description_policy", "foreign_fallback")
     feed_link = config.get("feed_link", "")
@@ -639,8 +649,10 @@ def main() -> None:
             # fetch the cross-link indexes above are empty dicts, and
             # writing with those would rewrite every page with the name
             # linker disabled, content-addressed straight over the good
-            # version already on disk.
-            if maintenance_ok:
+            # version already on disk. The same argument covers
+            # english_name_index, the linker's other input: an outage
+            # there is just as silent and just as wide.
+            if maintenance_ok and linker_ok:
                 site_entries = _build_site_entries(
                     history, description_policy=description_policy
                 )
@@ -657,10 +669,15 @@ def main() -> None:
                     f"site: {site_result['written']} of {site_result['pages']} pages "
                     f"written, {site_result['unchanged']} unchanged"
                 )
-            else:
+            elif not maintenance_ok:
                 report.warn(
                     "site rebuild skipped: maintenance failed, "
                     "not republishing with an empty cross-link catalog"
+                )
+            else:
+                report.warn(
+                    "site rebuild skipped: taxonomy unavailable, "
+                    "not republishing with the name linker disabled"
                 )
             report.info(
                 f"already published for {date_str}"
