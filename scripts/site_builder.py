@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from scripts import esc_html as _esc, name_linker
+from scripts import esc_html as _esc, name_linker, urls
 
 if TYPE_CHECKING:
     from scripts.i18n import Catalog
@@ -70,11 +70,17 @@ class SiteEntry:
 
     @property
     def anchor(self) -> str:
-        return f"bird-{self.species_code}-{self.date}"
+        return urls.entry_anchor(self.species_code, self.date)
 
     @property
     def archive_url(self) -> str:
-        return f"archive.html#{self.anchor}"
+        """Permalink of THIS publication: its month bucket plus anchor."""
+        return urls.bucket_url(self.species_code, self.date)
+
+    @property
+    def species_url(self) -> str:
+        """Canonical page for the species, independent of any date."""
+        return urls.species_url(self.species_code)
 
     @property
     def date_dotted(self) -> str:
