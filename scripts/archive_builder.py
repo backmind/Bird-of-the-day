@@ -182,16 +182,19 @@ def build_archive_front(entries: list[SiteEntry], ctx: RenderContext) -> str:
     )
 
 
-def group_by_species(entries: list[SiteEntry]) -> dict[str, list[SiteEntry]]:
-    """Map species code to its publications, newest first.
+def group_by_species(entries: list[SiteEntry]) -> list[tuple[str, list[SiteEntry]]]:
+    """Group entries into ``(species_code, publications)`` pairs.
 
-    Species order follows the most recent publication, because
-    ``entries`` arrives newest first.
+    Publications inside a species are newest first, and the species
+    themselves are ordered by their most recent publication, because
+    ``entries`` arrives newest first. Pairs rather than a dict for the
+    same reason as :func:`group_by_month`: the callers walk the sequence
+    by position.
     """
     grouped: dict[str, list[SiteEntry]] = {}
     for entry in entries:
         grouped.setdefault(entry.species_code, []).append(entry)
-    return grouped
+    return list(grouped.items())
 
 
 def _plate_nav(
@@ -292,17 +295,21 @@ def build_month_bucket(
 
 
 def _neighbours(
-    entries: list[SiteEntry], position: int
+    species: list[tuple[str, list[SiteEntry]]], position: int
 ) -> tuple[SiteEntry | None, SiteEntry | None]:
-    """The plates published just before and just after ``entries[position]``.
+    """The species sitting either side of ``species[position]``.
 
-    ``entries`` is newest first, so the newer neighbour sits at the lower
-    index. Returns ``(older, newer)``. Positions are looked up by identity
-    in the caller, not by value: ``list.index`` on a twenty-field
-    dataclass would compare every field of every entry.
+    The walk is over species, not over publications, because that is what
+    it links to: ordering by publication makes a species published twice
+    its own neighbour, and makes the backward walk dead-end there. The
+    sequence :func:`group_by_species` returns is already ordered by most
+    recent publication, newest first, so the newer neighbour sits at the
+    lower index. Returns ``(older, newer)``, each represented by the
+    neighbour's latest publication, which carries the common name to
+    label the link with and the species page to point it at.
     """
-    older = entries[position + 1] if position + 1 < len(entries) else None
-    newer = entries[position - 1] if position > 0 else None
+    older = species[position + 1][1][0] if position + 1 < len(species) else None
+    newer = species[position - 1][1][0] if position > 0 else None
     return older, newer
 
 
@@ -355,9 +362,9 @@ def write_site(
         )
 
     species_ctx = site_builder.for_subdirectory(ctx, "../")
-    positions = {id(entry): index for index, entry in enumerate(entries)}
-    for code, publications in group_by_species(entries).items():
-        older_entry, newer_entry = _neighbours(entries, positions[id(publications[0])])
+    species = group_by_species(entries)
+    for position, (code, publications) in enumerate(species):
+        older_entry, newer_entry = _neighbours(species, position)
         pages[urls.species_filename(code)] = build_species_page(
             publications, species_ctx, older=older_entry, newer=newer_entry
         )
