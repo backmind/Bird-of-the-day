@@ -334,6 +334,7 @@ def write_feeds(
     state_dir: Path,
     *,
     rebuild_all: bool = False,
+    thaw: set[str] | None = None,
 ) -> dict:
     """Write the capped feed and, when a cap applies, the full history.
 
@@ -350,6 +351,15 @@ def write_feeds(
     Frozen bodies are only trusted when the stored feed declares the
     current format version, so a change to the item's shape re-renders
     the history instead of leaving two formats mixed in one file.
+
+    ``thaw`` names the guids that must be re-rendered even when they fall
+    outside the window. Freezing is right for cross-linking and wrong for
+    repair: an entry published with a failed enrichment and healed months
+    later would otherwise keep its degraded body for as long as the file
+    exists, with the fix visible on its species page and nowhere else.
+    ``thawed`` in the result counts how many of those guids were old
+    enough to have been frozen, so a run that healed nothing old reports
+    zero rather than the size of the set it was handed.
 
     ``full_stale`` in the result flags the one state this function cannot
     fix on its own: an instance that had a cap and then removed it leaves
@@ -371,6 +381,7 @@ def write_feeds(
         "full_items": 0,
         "full_written": False,
         "frozen": 0,
+        "thawed": 0,
         "full_stale": cap <= 0 and full_path.exists(),
     }
     if cap <= 0:
@@ -385,11 +396,15 @@ def write_feeds(
             if e.description_html
         }
 
+    thawed = thaw or set()
     full_entries: list[FeedEntry] = []
     for index, entry in enumerate(entries):
         if index >= cap and entry.guid in frozen:
-            entry = replace(entry, description_html=frozen[entry.guid])
-            result["frozen"] += 1
+            if entry.guid in thawed:
+                result["thawed"] += 1
+            else:
+                entry = replace(entry, description_html=frozen[entry.guid])
+                result["frozen"] += 1
         full_entries.append(entry)
 
     result["full_items"] = len(full_entries)

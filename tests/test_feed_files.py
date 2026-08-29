@@ -119,17 +119,57 @@ class TestFreezing:
             changed, _config(2), Catalog.load("es"), tmp_path, **kwargs
         )
 
+    def _bodies(self, tmp_path) -> dict[str, str]:
+        return {
+            e.species_code: e.description_html
+            for e in load_existing_feed(str(tmp_path / urls.FEED_FULL_FILE))
+        }
+
     def test_old_bodies_are_reused_and_recent_ones_are_not(self, tmp_path):
         self._first_run(tmp_path)
         result = self._second_run(tmp_path)
         assert result["frozen"] == 3
-        bodies = {
-            e.species_code: e.description_html
-            for e in load_existing_feed(str(tmp_path / urls.FEED_FULL_FILE))
-        }
+        # Nothing was healed, so nothing is exempt from the rule.
+        assert result["thawed"] == 0
+        bodies = self._bodies(tmp_path)
         assert "redone 0" in bodies["sp000"]
         assert "redone 1" in bodies["sp001"]
         assert "fresh 4" in bodies["sp004"]
+
+    def test_a_healed_guid_is_re_rendered_outside_the_window(self, tmp_path):
+        """The repair has to reach the file, not just the species page.
+
+        Freezing is what keeps the daily diff to one item, and it is also
+        what would silently swallow a backfill that fixed an entry from
+        two months ago. The caller names the guid; everything else around
+        it stays frozen.
+        """
+        self._first_run(tmp_path)
+        healed = urls.feed_guid("sp004", "2026-08-27")
+        result = self._second_run(tmp_path, thaw={healed})
+        assert result["thawed"] == 1
+        assert result["frozen"] == 2
+        bodies = self._bodies(tmp_path)
+        assert "redone 4" in bodies["sp004"]
+        # Its neighbours in the frozen zone are untouched by the thaw.
+        assert "fresh 2" in bodies["sp002"]
+        assert "fresh 3" in bodies["sp003"]
+
+    def test_a_guid_inside_the_window_does_not_count_as_thawed(self, tmp_path):
+        # Everything inside the cap is re-rendered anyway, so healing one
+        # of those entries must not inflate the count the report prints.
+        self._first_run(tmp_path)
+        result = self._second_run(
+            tmp_path, thaw={urls.feed_guid("sp000", "2026-08-27")}
+        )
+        assert result["thawed"] == 0
+        assert result["frozen"] == 3
+
+    def test_no_thaw_set_freezes_exactly_as_before(self, tmp_path):
+        # The keyword is optional and None must behave like an empty set,
+        # not blow up on the membership test.
+        self._first_run(tmp_path)
+        assert self._second_run(tmp_path, thaw=None)["frozen"] == 3
 
     def test_rebuild_all_thaws_everything(self, tmp_path):
         self._first_run(tmp_path)

@@ -17,6 +17,7 @@ import json
 from datetime import datetime, timezone
 
 from scripts import feed_builder, generate, run_report, urls
+from scripts.backfill import BackfillAction
 from scripts.i18n import Catalog
 
 # Far from any real pubDate in the fixtures, so a date that leaked in
@@ -204,6 +205,44 @@ class TestPubDateMerge:
         assert "29 Aug 2026 12:00:00" in dates["zzz"]
 
 
+class TestHealedGuids:
+    """What the backfill repaired, expressed as feed identities.
+
+    A ``BackfillAction`` knows the species code and not the date, so the
+    dates have to come from history. Get this wrong and the healed entry
+    stays frozen in feed-full.xml with the body it was published with,
+    which is the exact failure the thaw exists to prevent.
+    """
+
+    HISTORY = _history(
+        ("aaa", "2026-06-01"), ("bbb", "2026-07-02"), ("aaa", "2026-08-03")
+    )
+
+    def test_the_date_comes_from_history(self):
+        assert generate._healed_guids(
+            [BackfillAction("bbb", "enrichment", True)], self.HISTORY
+        ) == {urls.feed_guid("bbb", "2026-07-02")}
+
+    def test_every_publication_of_a_healed_species_thaws(self):
+        # One cache file feeds every publication of the species, so a
+        # single heal changes both bodies. Thawing only the newest would
+        # leave the file holding two versions of the same repair.
+        assert generate._healed_guids(
+            [BackfillAction("aaa", "gbif", True)], self.HISTORY
+        ) == {
+            urls.feed_guid("aaa", "2026-06-01"),
+            urls.feed_guid("aaa", "2026-08-03"),
+        }
+
+    def test_nothing_healed_thaws_nothing(self):
+        assert generate._healed_guids([], self.HISTORY) == set()
+
+    def test_a_species_not_in_history_contributes_no_guid(self):
+        assert generate._healed_guids(
+            [BackfillAction("zzz", "gbif", True)], self.HISTORY
+        ) == set()
+
+
 class TestFeedReport:
     """What the run says about the two files afterwards."""
 
@@ -213,6 +252,7 @@ class TestFeedReport:
         "full_items": 0,
         "full_written": False,
         "frozen": 0,
+        "thawed": 0,
         "full_stale": False,
     }
 
@@ -242,6 +282,19 @@ class TestFeedReport:
         ).lines
         assert lines[0].endswith("unchanged")
         assert lines[1].endswith("unchanged")
+
+    def test_healed_entries_are_named_when_there_are_any(self):
+        lines = self._report(
+            full_items=141, full_written=True, frozen=109, thawed=2
+        ).lines
+        assert lines[1] == (
+            "feed-full: 141 items, 109 reused from the published feed, "
+            "2 re-rendered after healing, written"
+        )
+
+    def test_a_run_that_healed_nothing_old_says_nothing_about_healing(self):
+        lines = self._report(full_items=141, full_written=True, frozen=111).lines
+        assert "re-rendered" not in lines[1]
 
     def test_an_orphaned_full_feed_is_warned_about(self):
         report = self._report(full_stale=True)

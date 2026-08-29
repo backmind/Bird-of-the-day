@@ -356,6 +356,27 @@ def _build_indexes(
     return code_to_localized, published_anchors, published_anchors_abs
 
 
+def _healed_guids(
+    healed: list[backfill.BackfillAction], history: dict
+) -> set[str]:
+    """Feed guids of the publications a backfill actually repaired.
+
+    A ``BackfillAction`` carries the species code and not the date, while
+    the feed is keyed by both, so the dates come from history. Backfill
+    walks history deduplicated by code and repairs the per-species cache
+    every publication of that species reads, so a species published more
+    than once yields one guid per publication: healing it once heals all
+    of them, and freezing any of the others would leave the same file
+    holding two versions of the same repair.
+    """
+    codes = {action.species_code for action in healed}
+    return {
+        urls.feed_guid(entry["speciesCode"], entry["date"])
+        for entry in history.get("entries", [])
+        if entry.get("speciesCode") in codes and entry.get("date")
+    }
+
+
 def _rebuild_feed(
     history: dict,
     config: dict,
@@ -367,6 +388,7 @@ def _rebuild_feed(
     now: datetime,
     *,
     state_dir: Path = STATE_DIR,
+    thaw: set[str] | None = None,
 ) -> tuple[dict[str, str], dict]:
     """Full-rebuild the RSS feeds from history.
 
@@ -380,6 +402,10 @@ def _rebuild_feed(
     writing through the global made the two halves divergeable, and a
     test that redirected only one of them silently read the repository's
     own published feed.
+
+    ``thaw`` is passed straight to the writer: guids whose bodies must be
+    re-rendered even when the full feed would otherwise reuse what it
+    published. See :func:`_healed_guids` for what goes in it.
 
     Returns ``(composed_paths, feed_result)``: ``composed_paths`` is the
     ``species_code`` to relative-path map of composed distribution maps,
@@ -487,6 +513,7 @@ def _rebuild_feed(
         catalog,
         state_dir,
         rebuild_all=_config_flag(config, "feed_rebuild_all"),
+        thaw=thaw,
     )
     return composed_paths, feed_result
 
@@ -517,11 +544,17 @@ def _report_feed(feed_result: dict, report: run_report.RunReport) -> None:
     report.info(f"feed: {feed_result['items']} items, {state}")
     if feed_result["full_items"]:
         full_state = "written" if feed_result["full_written"] else "unchanged"
-        report.info(
-            f"feed-full: {feed_result['full_items']} items, "
-            f"{feed_result['frozen']} reused from the published feed, "
-            f"{full_state}"
-        )
+        bits = [
+            f"feed-full: {feed_result['full_items']} items",
+            f"{feed_result['frozen']} reused from the published feed",
+        ]
+        # Only when it happened: on the overwhelming majority of runs
+        # backfill heals nothing old, and a permanent ", 0 re-rendered"
+        # would train the reader to stop seeing the line.
+        if feed_result.get("thawed"):
+            bits.append(f"{feed_result['thawed']} re-rendered after healing")
+        bits.append(full_state)
+        report.info(", ".join(bits))
     if feed_result.get("full_stale"):
         report.warn(
             f"{urls.FEED_FULL_FILE} is published but no longer maintained: "
@@ -736,6 +769,7 @@ def main() -> None:
                     english_name_index, code_to_localized,
                     published_anchors_abs, now,
                     state_dir=STATE_DIR,
+                    thaw=_healed_guids(healed, history),
                 )
                 _report_missing_maps(history, composed_paths, report)
                 _report_feed(feed_result, report)
@@ -855,6 +889,7 @@ def main() -> None:
             history, config, catalog, description_policy,
             english_name_index, code_to_localized, published_anchors_abs, now,
             state_dir=STATE_DIR,
+            thaw=_healed_guids(healed, history),
         )
         _report_missing_maps(history, composed_paths, report)
         _report_feed(feed_result, report)
