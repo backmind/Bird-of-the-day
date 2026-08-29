@@ -14,6 +14,19 @@ from scripts.llm_enricher import (
     save_cached_enrichment,
 )
 
+# Realistic Spanish filler that langid classifies confidently.
+_SENTENCE = (
+    "Esta especie habita los bosques templados de Europa y se alimenta "
+    "principalmente de insectos y semillas durante todo el invierno. "
+)
+
+
+def _spanish_paragraph(min_chars: int) -> str:
+    text = ""
+    while len(text) < min_chars:
+        text += _SENTENCE
+    return text.strip()
+
 
 def _make_content(**kwargs):
     defaults = dict(
@@ -101,16 +114,17 @@ class TestBuildMessages:
 class TestEnrichSpecies:
     def test_success(self):
         content = _make_content()
-        config = {"llm": {"endpoint": "http://fake", "model": "test", "max_retries": 0}}
+        config = {"llm": {"endpoint": "http://fake", "models": ["test"], "max_retries": 0}}
         catalog = MagicMock()
         catalog.language = "es"
 
+        valid_prose = _spanish_paragraph(450) + "\n\n" + _spanish_paragraph(450)
         fake_response = MagicMock()
         fake_response.status_code = 200
         fake_response.json.return_value = {
             "choices": [{"message": {"content": json.dumps({
-                "prose": "Un pajarito interesante.",
-                "identification": ["Pico corto", "Plumas azules"],
+                "prose": valid_prose,
+                "identification": ["Pico corto", "Plumas azules", "Canto agudo"],
             })}}],
         }
         fake_response.raise_for_status = MagicMock()
@@ -123,8 +137,8 @@ class TestEnrichSpecies:
                 )
 
         assert result is not None
-        assert result.prose == "Un pajarito interesante."
-        assert len(result.identification) == 2
+        assert result.prose == valid_prose
+        assert len(result.identification) == 3
 
     def test_no_api_key(self):
         content = _make_content()
@@ -141,7 +155,7 @@ class TestEnrichSpecies:
 
     def test_api_failure(self):
         content = _make_content()
-        config = {"llm": {"endpoint": "http://fake", "model": "test", "max_retries": 0}}
+        config = {"llm": {"endpoint": "http://fake", "models": ["test"], "max_retries": 0}}
         catalog = MagicMock()
         catalog.language = "es"
 

@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 
 import requests
 
+from scripts import llm_validator
+
 if TYPE_CHECKING:
     from scripts.content_scraper import SpeciesContent
     from scripts.i18n import Catalog
@@ -349,15 +351,42 @@ def enrich_species(
     if result is None:
         return None
 
-    prose = result.get("prose", "")
-    identification = result.get("identification", [])
-    if not prose:
-        logger.warning("LLM returned empty prose for %s", species_code)
-        return None
-    if not isinstance(identification, list):
-        identification = []
+    hard, soft = llm_validator.validate_enrichment(result, catalog.language)
+    if hard:
+        logger.warning(
+            "LLM output for %s failed validation (%s); requesting correction",
+            species_code, "; ".join(hard),
+        )
+        corrective = messages + [
+            {"role": "assistant",
+             "content": json.dumps(result, ensure_ascii=False)},
+            {"role": "user", "content": (
+                "Your previous response violated these rules:\n- "
+                + "\n- ".join(hard)
+                + "\nReturn the corrected JSON response. Follow every rule "
+                "exactly. Same format, no commentary."
+            )},
+        ]
+        result = _call_llm(corrective, config)
+        if result is None:
+            return None
+        hard, soft = llm_validator.validate_enrichment(result, catalog.language)
+        if hard:
+            logger.error(
+                "LLM output for %s still invalid after correction (%s); "
+                "falling back", species_code, "; ".join(hard),
+            )
+            return None
+    for issue in soft:
+        logger.warning("LLM output for %s: %s", species_code, issue)
 
-    model = config.get("llm", {}).get("model", "unknown")
+    prose = result["prose"]
+    identification = [b.strip() for b in result["identification"]]
+
+    # Records the configured primary model; a fallback model in the chain
+    # may have actually answered, but exact per-call tracking is deferred.
+    models = _resolve_models(config)
+    model = models[0] if models else "unknown"
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     logger.info(
