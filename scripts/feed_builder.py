@@ -11,7 +11,7 @@ import html
 import logging
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -316,6 +316,80 @@ def build_feed(
     xml_string = _wrap_cdata(xml_string)
 
     return xml_string
+
+
+def write_feeds(
+    entries: list[FeedEntry],
+    config: dict,
+    catalog: "Catalog",
+    state_dir: Path,
+    *,
+    rebuild_all: bool = False,
+) -> dict:
+    """Write the capped feed and, when a cap applies, the full history.
+
+    ``entries`` are newest first with every body freshly rendered.
+
+    The full feed freezes: items past the cap keep the body they were
+    published with, read back from the previous file by guid. It makes
+    that file effectively append-only, so its daily diff is one item
+    instead of the whole history. What is given up is retroactive
+    cross-linking in old items, and that costs little: a species that
+    was not published yet already links to eBird, which is a permanent
+    destination rather than a dead one.
+
+    Frozen bodies are only trusted when the stored feed declares the
+    current format version, so a change to the item's shape re-renders
+    the history instead of leaving two formats mixed in one file.
+    """
+    feed_path = state_dir / urls.FEED_FILE
+    full_path = state_dir / urls.FEED_FULL_FILE
+    cap = int(config.get("max_feed_entries", 0) or 0)
+
+    capped = entries[:cap] if cap > 0 else entries
+    result = {
+        "items": len(capped),
+        "feed_written": write_feed(
+            build_feed(capped, config, catalog, self_path=urls.FEED_FILE),
+            str(feed_path),
+        ),
+        "full_items": 0,
+        "full_written": False,
+        "frozen": 0,
+    }
+    if cap <= 0:
+        # Without a cap the full feed would be a byte-for-byte duplicate.
+        return result
+
+    frozen: dict[str, str] = {}
+    if not rebuild_all and load_feed_format(str(full_path)) == FEED_FORMAT:
+        frozen = {
+            e.guid: e.description_html
+            for e in load_existing_feed(str(full_path))
+            if e.description_html
+        }
+
+    full_entries: list[FeedEntry] = []
+    for index, entry in enumerate(entries):
+        if index >= cap and entry.guid in frozen:
+            entry = replace(entry, description_html=frozen[entry.guid])
+            result["frozen"] += 1
+        full_entries.append(entry)
+
+    result["full_items"] = len(full_entries)
+    result["full_written"] = write_feed(
+        build_feed(
+            full_entries,
+            config,
+            catalog,
+            self_path=urls.FEED_FULL_FILE,
+            title=catalog.t(
+                "feed.full_title_template", title=catalog.t("feed.title")
+            ),
+        ),
+        str(full_path),
+    )
+    return result
 
 
 def _wrap_cdata(xml_string: str) -> str:
