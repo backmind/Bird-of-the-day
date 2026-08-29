@@ -840,7 +840,10 @@ def main() -> None:
         common_name = species["comName"]
         scientific_name = species["sciName"]
         report.info(f"species: {common_name} ({scientific_name}) [{species_code}]")
-        for note in selection_notes:
+        # Deduplicated: under the skip policy every re-roll runs the whole
+        # selection again, so the same clamp note would otherwise be
+        # printed once per attempt.
+        for note in dict.fromkeys(selection_notes):
             report.info(note)
 
         # 2. LLM enrichment: always attempted when an LLM is configured.
