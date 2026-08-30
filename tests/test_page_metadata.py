@@ -58,6 +58,30 @@ def _og(html: str, prop: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _entry_with_name(code, date, number, common_name, *, image_url=None):
+    """Like ``_entry``, but with a caller-chosen common name.
+
+    Used to carry a name with characters that are dangerous inside an
+    HTML attribute value (``"`` ends it early, ``&`` starts a malformed
+    entity) through the same fields ``_entry`` fills in a boring way.
+    """
+    return site_builder.SiteEntry(
+        species_code=code,
+        common_name=common_name,
+        scientific_name="Genus species",
+        date=date,
+        image_url=image_url,
+        photographer="",
+        attribution="",
+        description="A description.",
+        description_source="ebird",
+        bow_intro="",
+        taxonomy={},
+        ml_search_url="https://example.invalid/ml",
+        number=number,
+    )
+
+
 class TestPerPageDescriptions:
     def test_every_page_class_carries_its_own_description(
         self, tmp_path, catalog, entries
@@ -233,3 +257,35 @@ class TestNoOpenGraphWithoutFeedLink:
         ctx = site_builder.RenderContext(catalog=catalog, feed_link=FEED_LINK)
         html = site_builder.render_page("Title", "<p>body</p>", ctx, active="home")
         assert 'property="og:' not in html
+
+
+class TestEscaping:
+    """A species name is user-supplied text (eBird's own common name),
+    not a literal the codebase controls. It reaches three attribute
+    values per page (meta description, og:title, og:description), and
+    one unescaped ``"`` in any of them ends that attribute early; one
+    unescaped ``&`` starts a malformed entity. Both characters together,
+    in one name, is exactly the shape of input that reintroduces this
+    class of bug."""
+
+    TRICKY_NAME = 'Robin "Red" & Co'
+    ESCAPED_NAME = "Robin &quot;Red&quot; &amp; Co"
+
+    def test_quotes_and_ampersand_are_escaped_in_every_new_tag(
+        self, tmp_path, catalog
+    ):
+        entries = [
+            _entry_with_name("trky", "2026-08-03", 1, self.TRICKY_NAME),
+        ]
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        pages = _pages(tmp_path)
+
+        for name in ("index.html", "birds/trky.html"):
+            html = pages[name]
+            # The raw name must never survive unescaped anywhere on the
+            # page: that is the general guarantee. The three assertions
+            # below pin down the specific tags this task adds.
+            assert self.TRICKY_NAME not in html
+            assert self.ESCAPED_NAME in _meta_description(html)
+            assert self.ESCAPED_NAME in _og(html, "title")
+            assert self.ESCAPED_NAME in _og(html, "description")
