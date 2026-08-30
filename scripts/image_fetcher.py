@@ -170,6 +170,11 @@ def _try_ebird_og_image(
     The ``locale`` parameter controls the eBird language: with ``locale=es``
     the alt tag carries the Spanish common name, with ``locale=en`` the
     English one. Either way the asset id is the same.
+
+    Returns ``None`` when the page cannot be fetched, when it carries no
+    ``og:image``, and when the tag it carries has no asset id in it. That
+    last case is not theoretical: eBird emits the tag for species it has
+    no curated hero for, with the id left out.
     """
     url = f"https://ebird.org/species/{species_code}"
     try:
@@ -187,14 +192,18 @@ def _try_ebird_og_image(
     og_url = og_image["content"]
     match = _OG_ASSET_RE.search(og_url)
     if not match:
-        # Not a Macaulay CDN URL: surface as-is, no asset_id.
-        return ImageResult(
-            url=og_url,
-            asset_id=None,
-            photographer="",
-            attribution="Macaulay Library / Cornell Lab of Ornithology",
-            search_url=ml_search_url(species_code),
+        # No asset id in the tag, so we do not know what this URL points
+        # at. Earlier revisions surfaced it as-is, which published a
+        # broken photograph twice: eBird serves the hero tag even for a
+        # species it has no hero for, with the id left empty, and
+        # ".../api/v2/asset//900" is a 404 the reader sees as a hole in
+        # the plate. Decline and let the Macaulay strategy answer.
+        logger.debug(
+            "eBird og:image for %s carries no asset id (%s)",
+            species_code,
+            og_url,
         )
+        return None
 
     asset_id = match.group(1)
     photographer = ""
