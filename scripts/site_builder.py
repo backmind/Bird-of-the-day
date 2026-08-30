@@ -47,6 +47,13 @@ class RenderContext:
     It only is when a cap applies (see :func:`feed_builder.write_feeds`),
     so the pages have to be told: advertising a file that was never
     written hands every reader a 404.
+
+    ``site_author`` and ``site_author_url`` name this instance's owner,
+    both optional and empty by default. They are unrelated to the
+    template credit :func:`_render_footer` always emits: that one names
+    who wrote the software and never depends on configuration, this one
+    names who publishes this particular site and appears only when its
+    owner declares it.
     """
 
     catalog: "Catalog"
@@ -56,6 +63,8 @@ class RenderContext:
     published_anchors: dict = field(default_factory=dict)
     path_prefix: str = ""
     full_feed: bool = False
+    site_author: str = ""
+    site_author_url: str = ""
 
     def u(self, path: str) -> str:
         """Resolve a root-relative site path from this page's location."""
@@ -216,17 +225,38 @@ def render_subscribe(ctx: RenderContext) -> str:
 
 
 def _render_footer(ctx: RenderContext) -> str:
+    """Two different credits, never confused with each other.
+
+    ``footer.template_credit_html`` names the template's own author and
+    links its repository. It is entirely catalog-owned HTML, fixed per
+    language, and always emitted: no clone can turn it off.
+
+    The instance's own author line is built here, not in the catalog,
+    because it has to escape untrusted config values: ``site_author``
+    goes through ``_esc`` before it ever reaches ``t()``, and
+    ``site_author_url`` is only ever used inside an ``href`` attribute
+    after the same escaping, so neither can break out of the markup.
+    Emitted only when ``site_author`` is configured; the template credit
+    stands on its own otherwise.
+    """
     t = ctx.catalog.t
     year = datetime.now(timezone.utc).year
-    # Author is hardcoded in the per-language template, which may contain
-    # raw HTML for the embedded link — passed through verbatim.
-    author_line = t("footer.author_template", year=year)
-    code_link = t("footer.code_link_html")
+    template_credit = t("footer.template_credit_html")
+    credit_line = template_credit
+    if ctx.site_author:
+        name_html = _esc(ctx.site_author)
+        if ctx.site_author_url:
+            name_html = (
+                f'<a href="{_esc(ctx.site_author_url)}" target="_blank" '
+                f'rel="noopener">{name_html}</a>'
+            )
+        author_line = t("footer.author_template", year=year, name=name_html)
+        credit_line = f"{author_line} {template_credit}"
     return f"""
 <footer class="site">
   <p>{t("footer.data_credit_html")}</p>
   <p>{t("footer.photos_credit_html")}</p>
-  <p>{author_line} {code_link}</p>
+  <p>{credit_line}</p>
 </footer>
 """.strip()
 

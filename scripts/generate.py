@@ -147,6 +147,8 @@ _ENV_OVERRIDES: dict[str, tuple[str, Callable[[str], object]]] = {
     "BOTD_BACKFILL_LIMIT": ("backfill_limit", int),
     "BOTD_FEED_LINK": ("feed_link", str),
     "BOTD_FEED_REBUILD_ALL": ("feed_rebuild_all", _as_bool),
+    "BOTD_SITE_AUTHOR": ("site_author", str),
+    "BOTD_SITE_AUTHOR_URL": ("site_author_url", str),
 }
 
 logging.basicConfig(
@@ -785,6 +787,8 @@ def main() -> None:
 
     description_policy = config.get("description_policy", "foreign_fallback")
     feed_link = config.get("feed_link", "")
+    site_author = config.get("site_author", "")
+    site_author_url = config.get("site_author_url", "")
     # Whether feed-full.xml is published this run, derived from the one
     # expression write_feeds itself uses: without a cap the full feed
     # would duplicate feed.xml byte for byte, so it is not written, and
@@ -884,6 +888,8 @@ def main() -> None:
                     code_to_localized=code_to_localized,
                     published_anchors=published_anchors,
                     full_feed=full_feed,
+                    site_author=site_author,
+                    site_author_url=site_author_url,
                 )
                 composed_paths, feed_result = _rebuild_feed(
                     history, config, catalog, description_policy,
@@ -1013,6 +1019,8 @@ def main() -> None:
             code_to_localized=code_to_localized,
             published_anchors=published_anchors,
             full_feed=full_feed,
+            site_author=site_author,
+            site_author_url=site_author_url,
         )
 
         # 6. Rebuild the RSS feeds.

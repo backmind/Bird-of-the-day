@@ -638,7 +638,13 @@ a.republished-chip:hover {
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 2.5rem 1.75rem;
 }
-.card a { display: contents; color: inherit; text-decoration: none; }
+/* A plain block box, not `display: contents`: several browsers drop a
+   `display: contents` anchor from the accessibility tree entirely,
+   taking the card's only link out with it. `.card` sets no layout rules
+   of its own, so this anchor's height is still just the stacked height
+   of its children, same as when its own box was suppressed: the design
+   does not move, only the accessibility tree gains the link back. */
+.card a { display: block; color: inherit; text-decoration: none; }
 .card-thumb {
   /* 3:2 landscape, matching the hero plate-image. Most Macaulay photos
      are landscape DSLR shots so this fills cleanly. The few portrait
@@ -1109,4 +1115,29 @@ footer.site a { color: var(--ink-soft); }
 .species-history a { color: var(--ink); text-decoration: none; }
 .species-history a:hover { color: var(--accent); }
 .species-history .glyph { color: var(--ink-faint); }
+
+/* ─── reduced motion ────────────────────────────────────────────────
+   Durations collapse to (near) zero everywhere, which removes every
+   transition and animation as perceived motion without deleting the
+   property itself: deleting `transition` outright is harmless, but
+   deleting `transform` outright is not, since `.iucn-badge::after`
+   uses it to center a tooltip rather than to move anything. The few
+   hover effects that do move something (image zoom, icon rotation,
+   badge scale) are reset to their resting transform below, so hovering
+   changes nothing at all instead of jumping to the end state. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .plate:hover .plate-image img,
+  .card a:hover .card-thumb img,
+  .theme-toggle:hover,
+  .iucn-badge:hover {
+    transform: none;
+  }
+}
 """.strip()

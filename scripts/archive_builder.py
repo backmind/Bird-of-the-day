@@ -437,6 +437,8 @@ def write_site(
     code_to_localized: dict | None = None,
     published_anchors: dict | None = None,
     full_feed: bool = False,
+    site_author: str = "",
+    site_author_url: str = "",
 ) -> dict[str, int]:
     """Render every page and write the ones whose content changed.
 
@@ -448,6 +450,11 @@ def write_site(
     ``full_feed`` says whether ``feed-full.xml`` is published, and must
     match what :func:`feed_builder.write_feeds` decided for the same run:
     it is the flag the pages use to decide whether to link that file.
+
+    ``site_author`` and ``site_author_url`` are this instance's own
+    author line, both optional. See :class:`site_builder.RenderContext`
+    for how they differ from the template credit, which every page
+    carries regardless.
     """
     ctx = RenderContext(
         catalog=catalog,
@@ -456,6 +463,8 @@ def write_site(
         code_to_localized=code_to_localized or {},
         published_anchors=published_anchors or {},
         full_feed=full_feed,
+        site_author=site_author,
+        site_author_url=site_author_url,
     )
     output_dir = Path(output_dir)
     assets_dir = output_dir / "assets"
