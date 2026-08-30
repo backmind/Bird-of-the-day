@@ -308,6 +308,17 @@ the correct behavior for a fresh clone: a site that has published nothing
 of its own yet should not claim an author, and it must never inherit the
 name of whoever's instance you cloned from.
 
+Upgrading an existing instance: these two keys are new, and
+`data/config.json` is gitignored, so merging this version does not add
+them to the copy your deployment already has. That matters more than a
+missing knob usually would, because the footer's author line used to be
+unconditional, with the name baked into the i18n catalog. It is now
+conditional on `site_author`. Until you add the key by hand (or set
+`BOTD_SITE_AUTHOR` on the container), your footer and your feed's
+`<copyright>` carry only the template credit, and your name quietly stops
+appearing on a site that used to show it. Two lines in
+`data/config.json`, and it is back.
+
 ### LLM enrichment
 
 | Key | Meaning |

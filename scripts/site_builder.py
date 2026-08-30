@@ -629,6 +629,13 @@ class OpenGraph:
     while ``og:url`` must resolve the same regardless of which page
     links to it, so it is joined onto ``ctx.feed_link`` directly.
 
+    The same ``path`` is what :func:`render_page` emits as
+    ``<link rel="canonical">``, which is the literal meaning the name
+    already claimed. Keeping both off one field is what stops them
+    disagreeing: a page whose canonical said one thing and whose
+    ``og:url`` said another would be telling a crawler and a chat client
+    two different stories about which URL it really is.
+
     ``image`` is used as-is. Every photo the site publishes is already
     an absolute URL (hot-linked from Macaulay Library), so there is
     nothing to prefix. Leave it empty when the page has no photo:
@@ -653,11 +660,13 @@ def render_page(
 ) -> str:
     """Render a full page.
 
-    ``head_extra`` is raw markup appended to ``<head>``, for the rare
-    thing that has to run before first paint rather than in document
-    order; it is emitted right after the theme-boot script, which is
-    there for the same reason. Empty by default, and it contributes no
-    whitespace when empty so a page without it keeps its exact bytes.
+    ``head_extra`` is raw markup appended to ``<head>``: the rare thing
+    that has to run before first paint rather than in document order (the
+    archive front's legacy-anchor shim), or a directive that only belongs
+    to one page class (the 404's ``robots`` meta). It is emitted right
+    after the theme-boot script, which is there for the first reason.
+    Empty by default, and it contributes no whitespace when empty so a
+    page without it keeps its exact bytes.
 
     ``description`` is this page's own ``<meta name="description">``.
     Empty by default, in which case the tag is omitted rather than
@@ -672,6 +681,16 @@ def render_page(
     entirely rather than degraded. ``og:description`` mirrors
     ``description`` and ``og:image`` is omitted when ``og.image`` is
     empty, for the reason given on :class:`OpenGraph`.
+
+    ``<link rel="canonical">`` is emitted under exactly the same
+    condition and from the same ``og.path``, because it has the same
+    problem: a relative canonical is not resolvable by the crawler
+    reading it, and a wrong one is worse than none at all. It is what
+    settles the home page's two addresses, the bare base URL and
+    ``index.html``, in favour of the one ``sitemap.xml`` and ``og:url``
+    already name. The 404 passes no ``og`` and so gets no canonical,
+    which is correct: it is served for every URL that does not exist,
+    and it carries ``noindex`` instead.
 
     The second ``rel="alternate"`` is emitted only when the full-history
     feed is actually published, for the reason given on
@@ -691,6 +710,12 @@ def render_page(
             '\n  <link rel="alternate" type="application/rss+xml" title="'
             f'{_esc(t("feed.full_title_template", title=t("site.title")))}" '
             f'href="{_esc(ctx.u(urls.FEED_FULL_FILE))}">'
+        )
+    canonical_link = ""
+    if og is not None and ctx.feed_link:
+        canonical_link = (
+            '\n  <link rel="canonical" href="'
+            f'{_esc(urls.absolute(ctx.feed_link, og.path))}">'
         )
     og_meta = ""
     if og is not None and ctx.feed_link:
@@ -716,7 +741,7 @@ def render_page(
   <meta name="theme-color" content="#F4EEE0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0F1518" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="{_FAVICON_SVG}">
-  <link rel="preload" as="font" type="font/woff2" href="{_esc(ctx.u(urls.FONT_PRELOAD))}" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="{_esc(ctx.u(urls.FONT_PRELOAD))}" crossorigin>{canonical_link}
   <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="{_esc(ctx.u(urls.FEED_FILE))}">{full_feed_link}{og_meta}
   {_THEME_BOOT_SCRIPT}{head_block}
   <link rel="stylesheet" href="{stylesheet_href}">

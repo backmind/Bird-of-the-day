@@ -114,6 +114,15 @@ class TestSitemap:
         archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
         assert path.stat().st_mtime_ns == stamp
 
+    def test_ends_with_a_newline_like_robots_does(
+        self, tmp_path, catalog, entries
+    ):
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        sitemap = (tmp_path / urls.SITEMAP).read_text(encoding="utf-8")
+        robots = (tmp_path / urls.ROBOTS).read_text(encoding="utf-8")
+        assert sitemap.endswith("\n")
+        assert robots.endswith("\n")
+
 
 class TestRobots:
     def test_allows_everything(self, tmp_path, catalog, entries):
@@ -156,6 +165,31 @@ class TestNotFound:
     def test_is_written(self, tmp_path, catalog, entries):
         archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
         assert (tmp_path / urls.NOT_FOUND).exists()
+
+    def test_tells_crawlers_not_to_index_it(self, tmp_path, catalog, entries):
+        # Requested by name it answers 200, on nginx and on GitHub Pages
+        # alike: the 404 status is substituted for the URL that was
+        # missing, not for this file. So being absent from sitemap.xml
+        # is not enough; the page has to say so itself.
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        html = (tmp_path / urls.NOT_FOUND).read_text(encoding="utf-8")
+        assert '<meta name="robots" content="noindex">' in html
+
+    def test_says_so_even_without_a_feed_link(self, tmp_path, catalog, entries):
+        # Unlike the canonical and the Open Graph block, this one does
+        # not depend on a base URL: it is a directive, not a reference.
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link="")
+        html = (tmp_path / urls.NOT_FOUND).read_text(encoding="utf-8")
+        assert '<meta name="robots" content="noindex">' in html
+
+    def test_no_other_page_is_marked_noindex(self, tmp_path, catalog, entries):
+        # The whole site disappearing from search results is a plausible
+        # outcome of copying this line to the wrong builder.
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        for page in tmp_path.rglob("*.html"):
+            if page.name == urls.NOT_FOUND:
+                continue
+            assert 'name="robots"' not in page.read_text(encoding="utf-8"), page
 
     def test_shares_header_and_footer_with_every_other_page(
         self, tmp_path, catalog, entries

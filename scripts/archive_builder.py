@@ -372,7 +372,12 @@ def build_sitemap(pages: list[str], lastmod: dict[str, str], feed_link: str) -> 
     file on every run for no real change to the content.
 
     404.html is never part of ``pages``: an error page has nothing to
-    index and does not belong in a sitemap.
+    index and does not belong in a sitemap. It says so itself too, with
+    a ``noindex`` meta (see :func:`build_not_found`), since being absent
+    from a sitemap is not on its own an instruction to stay out.
+
+    Ends with a trailing newline, like :func:`build_robots` and like
+    every other text file this project writes.
     """
     urlset = ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
     for path in sorted(pages):
@@ -384,7 +389,7 @@ def build_sitemap(pages: list[str], lastmod: dict[str, str], feed_link: str) -> 
     tree = ET.ElementTree(urlset)
     ET.indent(tree, space="  ")
     xml_string = ET.tostring(urlset, encoding="unicode", xml_declaration=False)
-    return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_string
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_string + "\n"
 
 
 def build_robots(feed_link: str) -> str:
@@ -402,6 +407,15 @@ def build_robots(feed_link: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+# The 404 is the one page that must never be indexed. Served for every
+# URL that does not exist, it answers a direct request for /404.html with
+# a plain 200 (nginx only substitutes it as the *body* of a 404; asking
+# for it by name is an ordinary hit), and GitHub Pages does the same. To
+# a crawler that is an ordinary page, and without this it would compete
+# in search results with the pages that actually have content.
+_NOINDEX_META = '<meta name="robots" content="noindex">'
+
+
 def build_not_found(ctx: RenderContext) -> str:
     """Render ``404.html``: same chrome as every other page, own copy.
 
@@ -409,6 +423,11 @@ def build_not_found(ctx: RenderContext) -> str:
     configured ``feed_link``, root-relatively) rather than by page depth:
     see :func:`site_builder.for_absolute_root` for why ``ctx.u`` cannot
     be used here the way every other page builder uses it.
+
+    Carries ``noindex`` (see :data:`_NOINDEX_META`) and, by passing no
+    ``og``, no canonical either. Both are deliberate and belong to this
+    page alone: no other page may acquire either property by copying
+    this one.
     """
     absolute_ctx = site_builder.for_absolute_root(ctx)
     t = ctx.catalog.t
@@ -425,6 +444,7 @@ def build_not_found(ctx: RenderContext) -> str:
     )
     return site_builder.render_page(
         title, body, absolute_ctx, active="", description=t("notfound.message"),
+        head_extra=_NOINDEX_META,
     )
 
 

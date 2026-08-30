@@ -58,6 +58,11 @@ def _og(html: str, prop: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _canonical(html: str) -> str | None:
+    m = re.search(r'<link rel="canonical" href="([^"]*)">', html)
+    return m.group(1) if m else None
+
+
 def _entry_with_name(code, date, number, common_name, *, image_url=None):
     """Like ``_entry``, but with a caller-chosen common name.
 
@@ -218,6 +223,55 @@ class TestOpenGraphWithFeedLink:
         assert 'property="og:image"' not in pages["archive-2026-08.html"]
 
 
+class TestCanonicalWithFeedLink:
+    """The home page is reachable at two URLs, the bare base and
+    ``index.html``, and ``sitemap.xml`` and ``og:url`` both name the
+    second. Without a canonical, nothing on the page says the two are
+    the same document."""
+
+    PAGE_CLASSES = ("index.html", "archive.html", "archive-2026-08.html", "birds/d.html")
+
+    def test_every_page_class_declares_a_canonical(
+        self, tmp_path, catalog, entries
+    ):
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        pages = _pages(tmp_path)
+        for name in self.PAGE_CLASSES:
+            canonical = _canonical(pages[name])
+            assert canonical is not None, f"{name} has no canonical"
+            assert canonical.startswith(FEED_LINK)
+
+    def test_canonical_is_the_pages_own_absolute_url(
+        self, tmp_path, catalog, entries
+    ):
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        pages = _pages(tmp_path)
+        for name in self.PAGE_CLASSES:
+            assert _canonical(pages[name]) == f"{FEED_LINK}/{name}"
+
+    def test_canonical_never_carries_the_page_depth_prefix(
+        self, tmp_path, catalog, entries
+    ):
+        # Species pages render with a "../" prefix for in-page links. A
+        # canonical that picked it up would name a URL outside the site.
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        assert ".." not in _canonical(_pages(tmp_path)["birds/d.html"])
+
+    def test_canonical_agrees_with_og_url(self, tmp_path, catalog, entries):
+        # Both come off OpenGraph.path precisely so they cannot disagree.
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        pages = _pages(tmp_path)
+        for name in self.PAGE_CLASSES:
+            assert _canonical(pages[name]) == _og(pages[name], "url")
+
+    def test_the_404_declares_no_canonical(self, tmp_path, catalog, entries):
+        # It is served for every URL that does not exist, so it has no
+        # single URL to claim as its own. It carries noindex instead.
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        html = (tmp_path / urls.NOT_FOUND).read_text(encoding="utf-8")
+        assert _canonical(html) is None
+
+
 class TestNoOpenGraphWithoutFeedLink:
     """The rule this package cannot afford to get wrong: a relative
     og:url is worse than no og:url at all, because no client consuming
@@ -257,6 +311,25 @@ class TestNoOpenGraphWithoutFeedLink:
         ctx = site_builder.RenderContext(catalog=catalog, feed_link=FEED_LINK)
         html = site_builder.render_page("Title", "<p>body</p>", ctx, active="home")
         assert 'property="og:' not in html
+
+    def test_no_page_class_declares_a_canonical(self, tmp_path, catalog, entries):
+        # Same rule as og:url, for the same reason: a relative canonical
+        # cannot be resolved by the crawler that reads it, and a wrong
+        # one is worse than none.
+        archive_builder.write_site(entries, tmp_path, catalog)
+        pages = _pages(tmp_path)
+        for name in ("index.html", "archive.html", "archive-2026-08.html", "birds/d.html"):
+            assert 'rel="canonical"' not in pages[name]
+
+    def test_render_page_with_og_data_but_no_feed_link_emits_no_canonical(
+        self, catalog
+    ):
+        ctx = site_builder.RenderContext(catalog=catalog, feed_link="")
+        og = site_builder.OpenGraph(title="T", path="index.html")
+        html = site_builder.render_page(
+            "Title", "<p>body</p>", ctx, active="home", og=og
+        )
+        assert 'rel="canonical"' not in html
 
 
 class TestEscaping:
