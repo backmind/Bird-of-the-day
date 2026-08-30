@@ -21,6 +21,9 @@ FEED_FULL_FILE = "feed-full.xml"
 STYLESHEET = "assets/site.css"
 BASEMAP = "assets/basemap.png"
 SPECIES_DIR = "birds"
+SITEMAP = "sitemap.xml"
+ROBOTS = "robots.txt"
+NOT_FOUND = "404.html"
 FONTS_DIR = "assets/fonts"
 FONT_FILES = (
     "fraunces-latin.woff2",

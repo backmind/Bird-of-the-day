@@ -1,0 +1,34 @@
+name: Quality
+
+# Runs the test suite on every push and every pull request. No linter and
+# no type checker: neither is configured in this repository, and adding
+# one here would open a style conversation this workflow is not meant to
+# start.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        # No python-version pinned here: uv itself reads the
+        # .python-version file at the repository root and installs that
+        # exact interpreter for every `uv` command below, so the version
+        # has a single source of truth instead of being duplicated (and
+        # risking drift) in this workflow.
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest -q

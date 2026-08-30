@@ -79,6 +79,30 @@ def for_subdirectory(ctx: RenderContext, prefix: str) -> RenderContext:
     return replace(ctx, path_prefix=prefix, published_anchors=prefixed)
 
 
+def for_absolute_root(ctx: RenderContext) -> RenderContext:
+    """Context for a page with no fixed location: the 404.
+
+    Every other page lives at a known depth, so :meth:`RenderContext.u`
+    can prefix its targets with a relative climb (``""`` at the root,
+    ``"../"`` under ``birds/``). A 404 is served for a URL of any depth,
+    so a root-relative target like ``assets/site.css`` would resolve
+    against whatever directory the missing URL happened to live under,
+    not against the site root.
+
+    With ``ctx.feed_link`` configured, every target is instead prefixed
+    with the absolute base URL (via :func:`urls.absolute`), so it
+    resolves the same regardless of where the 404 is served from.
+    Without one, there is no absolute base to build from, so this falls
+    back to a leading slash: correct only when the site is served from a
+    domain root, which is the deployment this project assumes once no
+    base URL has been configured. A project page served under a subpath
+    has no correct fallback without knowing the base URL, and this
+    function does not pretend otherwise.
+    """
+    prefix = urls.absolute(ctx.feed_link, "") if ctx.feed_link else "/"
+    return replace(ctx, path_prefix=prefix)
+
+
 @dataclass
 class SiteEntry:
     species_code: str

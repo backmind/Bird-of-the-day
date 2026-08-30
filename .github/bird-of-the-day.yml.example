@@ -34,6 +34,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -f feed.xml history.json index.html archive.html archive-*.html birds/ cache/ maps/ assets/
+          # feed-full.xml, sitemap.xml, robots.txt and 404.html only exist
+          # once the build has actually produced them (a feed cap, a
+          # configured feed_link, or simply a first successful run), so
+          # each is added only if present: "git add -f" on a literal
+          # filename that does not exist aborts with nothing staged at
+          # all, taking the whole commit down with it.
+          for optional in feed-full.xml sitemap.xml robots.txt 404.html; do
+            [ -e "$optional" ] && git add -f "$optional"
+          done
           git diff --staged --quiet && echo "No changes to commit" && exit 0
           git commit -m "🐦 Bird of the day: $(date -u +%Y-%m-%d)"
           git pull --rebase origin main

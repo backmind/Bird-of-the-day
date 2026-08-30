@@ -24,9 +24,15 @@ def entries():
 
 
 def _pages(tmp_path) -> dict[str, str]:
+    # 404.html is a real file write_site produces, but it is not one of
+    # the four page classes this module's "pages" dict counts (it is not
+    # rendered per-entry and is not part of result["pages"]); it is
+    # excluded here so this helper's page set matches that dict. See
+    # tests/test_discoverability.py for 404.html's own coverage.
     return {
         p.relative_to(tmp_path).as_posix(): p.read_text(encoding="utf-8")
         for p in tmp_path.rglob("*.html")
+        if p.name != "404.html"
     }
 
 
@@ -57,7 +63,13 @@ def test_every_page_links_the_full_feed_when_it_is_published(
 
 def test_writes_the_full_page_set(tmp_path, catalog, entries):
     result = archive_builder.write_site(entries, tmp_path, catalog)
-    written = {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*.html")}
+    # 404.html is excluded: it is a real file on disk, but not one of the
+    # four page classes this set (and result["pages"] below) counts.
+    written = {
+        p.relative_to(tmp_path).as_posix()
+        for p in tmp_path.rglob("*.html")
+        if p.name != "404.html"
+    }
     assert written == {
         "index.html",
         "archive.html",

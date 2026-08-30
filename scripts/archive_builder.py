@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -356,6 +357,77 @@ def _neighbours(
     return older, newer
 
 
+def build_sitemap(pages: list[str], lastmod: dict[str, str], feed_link: str) -> str:
+    """Build ``sitemap.xml`` listing exactly the pages ``write_site`` wrote.
+
+    ``pages`` is the actual set of relative paths the current run
+    produced, not a hand-maintained list: a page class added by a future
+    package is picked up automatically and one that is removed falls off
+    without anyone remembering to prune an entry here.
+
+    ``lastmod`` supplies a ``YYYY-MM-DD`` date per page where one is
+    known (see :func:`write_site`). A page with no known date (the empty
+    site, before any bird has ever been published) is listed without the
+    element rather than inventing today's date, which would rewrite this
+    file on every run for no real change to the content.
+
+    404.html is never part of ``pages``: an error page has nothing to
+    index and does not belong in a sitemap.
+    """
+    urlset = ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
+    for path in sorted(pages):
+        url_el = ET.SubElement(urlset, "url")
+        ET.SubElement(url_el, "loc").text = urls.absolute(feed_link, path)
+        date = lastmod.get(path)
+        if date:
+            ET.SubElement(url_el, "lastmod").text = date
+    tree = ET.ElementTree(urlset)
+    ET.indent(tree, space="  ")
+    xml_string = ET.tostring(urlset, encoding="unicode", xml_declaration=False)
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_string
+
+
+def build_robots(feed_link: str) -> str:
+    """Build ``robots.txt``: allow everything, point at the sitemap.
+
+    Without a configured ``feed_link`` there is no absolute URL to
+    publish, and :func:`write_site` does not write a sitemap in that case
+    either, so the ``Sitemap`` line is omitted rather than pointing at a
+    file that was never written.
+    """
+    lines = ["User-agent: *", "Allow: /"]
+    if feed_link:
+        lines.append("")
+        lines.append(f"Sitemap: {urls.absolute(feed_link, urls.SITEMAP)}")
+    return "\n".join(lines) + "\n"
+
+
+def build_not_found(ctx: RenderContext) -> str:
+    """Render ``404.html``: same chrome as every other page, own copy.
+
+    Built from a context whose paths resolve absolutely (or, without a
+    configured ``feed_link``, root-relatively) rather than by page depth:
+    see :func:`site_builder.for_absolute_root` for why ``ctx.u`` cannot
+    be used here the way every other page builder uses it.
+    """
+    absolute_ctx = site_builder.for_absolute_root(ctx)
+    t = ctx.catalog.t
+    title = t("page.not_found_title_template")
+    body = "\n".join(
+        [
+            '<div class="archive-intro">',
+            f'<h1>{_esc(t("notfound.title"))}</h1>',
+            f'<p>{_esc(t("notfound.message"))}</p>',
+            "</div>",
+            f'<p><a href="{_esc(absolute_ctx.u(urls.ARCHIVE_FRONT))}">'
+            f'{_esc(t("nav.back_to_archive"))}</a></p>',
+        ]
+    )
+    return site_builder.render_page(
+        title, body, absolute_ctx, active="", description=t("notfound.message"),
+    )
+
+
 def write_site(
     entries: list[SiteEntry],
     output_dir: Path,
@@ -408,27 +480,62 @@ def write_site(
         urls.INDEX_PAGE: site_builder.build_index(entries, ctx),
         urls.ARCHIVE_FRONT: build_archive_front(entries, ctx),
     }
+    # lastmod per page, for sitemap.xml below. entries arrives newest
+    # first (a documented invariant every builder above already relies
+    # on), so entries[0].date is the newest publication on the whole
+    # site: what the home page and the archive front both currently
+    # show. An empty site has no publication to date itself by, so
+    # those two pages are simply left out of this dict rather than
+    # dated with the run's own clock, which would rewrite this file
+    # every day for no real change (the same reasoning feed_builder
+    # already applies to the feed's own <pubDate>).
+    lastmod: dict[str, str] = {}
+    if entries:
+        lastmod[urls.INDEX_PAGE] = entries[0].date
+        lastmod[urls.ARCHIVE_FRONT] = entries[0].date
 
     months = group_by_month(entries)
     for position, (month, month_entries) in enumerate(months):
         newer = months[position - 1][0] if position > 0 else ""
         older = months[position + 1][0] if position + 1 < len(months) else ""
-        pages[urls.bucket_filename_for_month(month)] = build_month_bucket(
+        filename = urls.bucket_filename_for_month(month)
+        pages[filename] = build_month_bucket(
             month, month_entries, ctx, newer_month=newer, older_month=older
         )
+        # month_entries is newest first (see group_by_month), so its
+        # first item is the most recent publication in that month.
+        lastmod[filename] = month_entries[0].date
 
     species_ctx = site_builder.for_subdirectory(ctx, "../")
     species = group_by_species(entries)
     for position, (code, publications) in enumerate(species):
         older_entry, newer_entry = _neighbours(species, position)
-        pages[urls.species_filename(code)] = build_species_page(
+        filename = urls.species_filename(code)
+        pages[filename] = build_species_page(
             publications, species_ctx, older=older_entry, newer=newer_entry
         )
+        # publications is newest first (see group_by_species), so its
+        # first item is this species' most recent publication date.
+        lastmod[filename] = publications[0].date
 
     written = 0
     for relative_path, html in pages.items():
         if atomic_io.write_text_if_changed(output_dir / relative_path, html):
             written += 1
+
+    # Discoverability files, written alongside the page set but never
+    # counted in it: they are not one of the four page classes the
+    # return value below reports on. sitemap.xml lists exactly the keys
+    # of ``pages`` just produced above, never a recomputed or
+    # hand-maintained list. Without a feed_link there is no absolute URL
+    # to put in it, so it is not written at all, and build_robots knows
+    # not to reference a file that does not exist.
+    if feed_link:
+        atomic_io.write_text_if_changed(
+            output_dir / urls.SITEMAP, build_sitemap(list(pages), lastmod, feed_link)
+        )
+    atomic_io.write_text_if_changed(output_dir / urls.ROBOTS, build_robots(feed_link))
+    atomic_io.write_text_if_changed(output_dir / urls.NOT_FOUND, build_not_found(ctx))
 
     logger.info(
         "Site written: %d of %d pages changed (%d entries)",

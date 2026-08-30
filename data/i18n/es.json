@@ -42,6 +42,8 @@
   "iucn.NE": "No Evaluado",
   "archive.empty": "El archivo está vacío.",
   "index.empty": "Aún no hay aves publicadas. Vuelve mañana.",
+  "notfound.title": "Página no encontrada",
+  "notfound.message": "La página que buscas no existe, o puede que se haya movido.",
 
   "footer.data_credit_html": "Datos de <a href=\"https://ebird.org\" target=\"_blank\" rel=\"noopener\">eBird</a> y <a href=\"https://www.birds.cornell.edu/\" target=\"_blank\" rel=\"noopener\">Cornell Lab of Ornithology</a>.",
   "footer.photos_credit_html": "Fotos de <a href=\"https://www.macaulaylibrary.org/\" target=\"_blank\" rel=\"noopener\">Macaulay Library</a>, © de sus respectivos autores.",
@@ -52,6 +54,7 @@
   "page.archive_title_template": "Archivo — Ave del Día",
   "page.bucket_title_template": "{month} · Archivo · Ave del Día",
   "page.species_title_template": "{name} · Ficha · Ave del Día",
+  "page.not_found_title_template": "Página no encontrada · Ave del Día",
   "page.home_description_template": "El ave destacada de hoy: {name}.",
   "page.archive_description_template": "Explora el archivo completo: {count} aves publicadas hasta ahora.",
   "page.bucket_description_template": "Aves publicadas en {month}.",

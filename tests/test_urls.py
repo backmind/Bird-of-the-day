@@ -48,3 +48,9 @@ def test_absolute_joins_with_a_single_slash():
 def test_feed_full_file_is_a_sibling_of_the_feed():
     assert urls.FEED_FULL_FILE.endswith(".xml")
     assert urls.FEED_FULL_FILE != urls.FEED_FILE
+
+
+def test_discoverability_filenames():
+    assert urls.SITEMAP == "sitemap.xml"
+    assert urls.ROBOTS == "robots.txt"
+    assert urls.NOT_FOUND == "404.html"

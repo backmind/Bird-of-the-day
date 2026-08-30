@@ -42,6 +42,8 @@
   "iucn.NE": "Not Evaluated",
   "archive.empty": "The archive is empty.",
   "index.empty": "No birds have been published yet. Come back tomorrow.",
+  "notfound.title": "Page not found",
+  "notfound.message": "The page you were looking for does not exist, or it may have moved.",
 
   "footer.data_credit_html": "Data from <a href=\"https://ebird.org\" target=\"_blank\" rel=\"noopener\">eBird</a> and <a href=\"https://www.birds.cornell.edu/\" target=\"_blank\" rel=\"noopener\">Cornell Lab of Ornithology</a>.",
   "footer.photos_credit_html": "Photos from <a href=\"https://www.macaulaylibrary.org/\" target=\"_blank\" rel=\"noopener\">Macaulay Library</a>, © their respective authors.",
@@ -52,6 +54,7 @@
   "page.archive_title_template": "Archive — Bird of the Day",
   "page.bucket_title_template": "{month} · Archive · Bird of the Day",
   "page.species_title_template": "{name} · Species page · Bird of the Day",
+  "page.not_found_title_template": "Page not found · Bird of the Day",
   "page.home_description_template": "Today's featured bird: {name}.",
   "page.archive_description_template": "Browse the full archive: {count} birds published so far.",
   "page.bucket_description_template": "Birds published in {month}.",
