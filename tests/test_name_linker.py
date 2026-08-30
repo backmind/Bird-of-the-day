@@ -207,3 +207,68 @@ def test_whitespace_localized_name_does_not_crash():
         "The Barn Owl flies at night.", eni, c2l, {}
     )
     assert "ebird.org/species/brnowl" in result
+
+
+def _sciname(monkeypatch, index):
+    """Point the scientific-name pass at a fixed taxonomy index."""
+    from scripts import ebird_client
+
+    monkeypatch.setattr(ebird_client, "get_sciname_index", lambda: index)
+
+
+def test_binomial_italicised(monkeypatch):
+    _sciname(monkeypatch, {"leiothrix lutea": "Leiothrix lutea"})
+    c2l = {"reblei": "Leiotrix Piquirrojo"}
+    result = process_description(
+        "El Leiotrix Piquirrojo (Leiothrix lutea) canta al alba.",
+        {}, c2l, {},
+    )
+    assert "<em>Leiothrix lutea</em>" in result
+
+
+def test_binomial_italicised_when_genus_is_the_localized_head_word(monkeypatch):
+    """The head-word pass must not claim the genus inside a binomial.
+
+    Spanish bird names often reuse the genus as their head noun
+    (Atlapetes, Curruca, Aratinga). Linking that head word inside the
+    binomial split the name across an anchor and left the whole
+    binomial un-italicised.
+    """
+    _sciname(monkeypatch, {"atlapetes melanopsis": "Atlapetes melanopsis"})
+    c2l = {"bksbrf1": "Atlapetes de Anteojos"}
+    anchors = {"bksbrf1": "birds/bksbrf1.html"}
+    result = process_description(
+        "El Atlapetes de Anteojos (Atlapetes melanopsis) vive en Peru.",
+        {}, c2l, anchors,
+    )
+    assert "<em>Atlapetes melanopsis</em>" in result
+    assert "melanopsis</a>" not in result
+    assert '<a href="birds/bksbrf1.html">Atlapetes</a> melanopsis' not in result
+
+
+def test_markdown_emphasis_stripped(monkeypatch):
+    """Markdown emphasis from the model never reaches the page."""
+    _sciname(monkeypatch, {"aegypius monachus": "Aegypius monachus"})
+    c2l = {"cinvul1": "Buitre Negro"}
+    result = process_description(
+        "El Buitre Negro (*Aegypius monachus*) planea sobre la sierra.",
+        {}, c2l, {},
+    )
+    assert "*" not in result
+    assert "<em>Aegypius monachus</em>" in result
+
+
+def test_markdown_emphasis_stripped_without_taxonomy():
+    """Stripping does not depend on the taxonomy being loaded."""
+    c2l = {"cinvul1": "Buitre Negro"}
+    result = process_description(
+        "El Buitre Negro (*Aegypius monachus*) planea.", {}, c2l, {}
+    )
+    assert "*" not in result
+    assert "Aegypius monachus" in result
+
+
+def test_lone_asterisk_kept():
+    """A bare asterisk is not emphasis and is left alone."""
+    result = process_description("Mide 5 * 3 metros.", {}, {}, {})
+    assert result == "Mide 5 * 3 metros."
