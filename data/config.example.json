@@ -1,6 +1,6 @@
 {
   "language": "en",
-  "_language_help": "One of the languages with a catalog at data/i18n/{lang}.json. Default: es.",
+  "_language_help": "One of the languages with a catalog at data/i18n/{lang}.json. This example ships 'en'; delete the key entirely and the loader falls back to 'es'. Set via BOTD_LANGUAGE.",
 
   "ebird_locale": null,
   "_ebird_locale_help": "Optional override for the eBird API locale (e.g. 'pt_BR'). If null, derived from `language`.",
@@ -8,7 +8,7 @@
   "description_policy": "foreign_fallback",
   "_description_policy_help": "How to render descriptions when no source produces text in the configured language. One of: strict | foreign_fallback | skip. Default: foreign_fallback.",
   "max_skip_retries": 50,
-  "_max_skip_retries_help": "Only used by description_policy 'skip': how many times to re-roll the species before giving up and publishing the last attempt anyway.",
+  "_max_skip_retries_help": "Only used by description_policy 'skip': how many times to re-roll the species before giving up. On exhaustion it publishes the last species it tried, whose description is empty and therefore renders exactly as 'strict' would. Set via BOTD_MAX_SKIP_RETRIES.",
 
   "_pools_help": "The daily draw picks one pool, weighted by 'weight' (relative, they need not add up to 1) and seeded from the date. type: 'regional' queries one eBird region code, 'europe_random' picks one country from 'countries' per day and queries that, 'global_taxonomy' draws from the whole eBird world list.",
   "pools": [

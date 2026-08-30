@@ -33,8 +33,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # assets/ carries the stylesheet, the self-hosted woff2 fonts and
-          # the published basemap: the site cannot render without it.
+          # These need no existence guard, which is the whole reason the
+          # ones below do. They are what a repository that has published
+          # even once always carries: the feed, the history, the two fixed
+          # pages, and the four directories. cache/ and maps/ ship a
+          # committed .gitkeep so they exist before anything fills them,
+          # and assets/ carries the stylesheet, the self-hosted woff2 fonts
+          # and the published basemap, without which the site cannot render.
           git add -f feed.xml history.json index.html archive.html birds/ cache/ maps/ assets/
           # Everything below is staged one path at a time, guarded on that
           # path existing first. This is not a style choice and must not be
@@ -45,14 +50,19 @@ jobs:
           # script under "bash -e", so that failure kills the step on the
           # spot, before the commit. One absent file costs the day.
           #
-          # archive-*.html is in this list for that exact reason, not a
-          # different one. The glob is unquoted so the shell expands it here,
-          # into one word per matching month bucket; when nothing matches it
-          # stays literal and "[ -e ]" rejects it, which is precisely the
-          # case that used to abort the add. The rest are optional in the
-          # ordinary sense: feed-full.xml needs a feed cap, sitemap.xml needs
-          # a configured feed_link, and none of them exists before the first
-          # successful run.
+          # feed-full.xml needs a feed cap and sitemap.xml needs a configured
+          # feed_link, so an instance with neither has neither file.
+          # archive-*.html is here for the same reason and not a different
+          # one: the month buckets are written by the site build, the site
+          # build is skipped on a run where maintenance or the taxonomy fetch
+          # failed, and a repository that has not committed a bucket file yet
+          # then has none on disk. The glob is unquoted so the shell expands
+          # it here, into one word per matching bucket; with no match it
+          # stays literal and "[ -e ]" drops it, which is exactly the case
+          # that used to abort the add.
+          #
+          # Adding a path to this step? It belongs in the loop unless you can
+          # show it is present on every run that gets this far.
           for optional in archive-*.html feed-full.xml sitemap.xml robots.txt 404.html; do
             [ -e "$optional" ] && git add -f "$optional"
           done

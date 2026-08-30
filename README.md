@@ -123,7 +123,8 @@ GitHub Actions (cron daily 07:00 UTC)
   │     what the pool can supply today
   ├─ 3. Photo + photographer: eBird's curated og:image hero first,
   │     Macaulay Library Search API as fallback. A republication
-  │     skips the hero and walks the Macaulay list for a new photo
+  │     skips the hero and walks the Macaulay list for an unused
+  │     photo, falling back to the normal order if it finds none
   ├─ 4. Description chain in the configured language:
   │     eBird Merlin → Wikipedia → policy-driven fallback
   ├─ 4b. LLM enrichment (when an LLM endpoint is configured):
@@ -176,12 +177,19 @@ tightening before it starts repeating. If a pool answers with nothing at
 all (a network error, a region with no recent observations), there is one
 rescue attempt against the global taxonomy.
 
-When a species does come back, it is not a carbon copy of the first time.
-The photo is picked past every asset that species has already been
-published with, and the entry carries a chip naming the previous
-publication date: on its month-bucket plate, on its grid card and on its
-RSS item. The species' own page leaves the chip out, since it already
-lists every date that species has been published.
+When a species does come back, it is normally not a carbon copy of the
+first time. The rated Macaulay list is walked past every asset that
+species has already been published with, so a repeat usually arrives with
+a photo you have not seen. It is a preference, not a guarantee: when the
+library offers nothing new, the ordinary lookup runs anyway and the photo
+can repeat, on the principle that a familiar photograph beats no
+photograph.
+
+The entry also carries a chip naming its previous publication date. It
+appears wherever that entry is rendered: the home hero, its month-bucket
+plate, its grid card, and its RSS item. The species' own page is the one
+place that leaves it out, since that page already lists every date the
+species has been published.
 
 ## Stack
 
@@ -337,7 +345,7 @@ Wikipedia) returns text in your configured language:
 |---|---|
 | `foreign_fallback` (default) | Show the original text with a disclaimer naming the source language (e.g. *"Description in English (no French translation available)"*). |
 | `strict` | Show an em-dash placeholder. Never display foreign text. |
-| `skip` | Re-roll species selection up to `max_skip_retries` times. On exhaustion, falls back to `strict`. |
+| `skip` | Re-roll species selection up to `max_skip_retries` times. On exhaustion, publishes the last species it tried, whose description is empty and therefore renders exactly as `strict` would. |
 
 Even with `strict`, the footer always carries a Wikipedia link — falling
 back to English Wikipedia (and labeled `Wikipedia (en)`) if the target
@@ -430,11 +438,24 @@ That loop is not a stylistic choice and should not be "simplified" back
 into the first command. `git add -f` on a literal path that does not
 exist fails outright and leaves *nothing* staged, not even the paths it
 had already accepted, and since Actions runs the step under `bash -e`
-that failure kills the run before it reaches the commit. Each of those
-paths can legitimately be absent: `feed-full.xml` needs a feed cap,
-`sitemap.xml` needs a `feed_link`, and on a run that published no bird at
-all there is no month bucket for `archive-*.html` to match, in which case
-the shell leaves the pattern literal and the existence test drops it.
+that failure kills the run before it reaches the commit.
+
+The split is between paths that are always there and paths that are only
+sometimes there. The first command's are the ones a repository that has
+published even once always has: the feed, the history, the two fixed
+pages, and the four directories, two of which (`cache/` and `maps/`) ship
+a committed `.gitkeep` precisely so they exist before anything fills
+them. Everything in the loop is conditional. `feed-full.xml` needs a feed
+cap and `sitemap.xml` needs a configured `feed_link`, so neither exists
+on an instance that has set neither. `archive-*.html` is subtler: the
+buckets are written by the site build, and the site build is skipped on a
+run where maintenance or the taxonomy fetch failed, so on a repository
+that has not yet committed a bucket file the pattern can match nothing.
+An unmatched glob is left literal by the shell, which is exactly what the
+existence test is there to drop.
+
+The rule for anyone extending this step: a new path goes in the loop
+unless you can show it is present on every run that reaches it.
 
 It then commits with a message of the form `🐦 Bird of the day:
 2026-04-11`, rebases onto the remote and pushes. The rebase step names
@@ -822,7 +843,9 @@ Bird-of-the-day/
 ├── assets/                # site.css + basemap.png + fonts/, written at build time (generated)
 ├── CNAME.example          # copy to CNAME for custom domain setup
 ├── .env.example           # environment variable template
+├── .gitignore             # secrets, the venv, and the generated site output
 ├── .gitattributes         # forces LF on generated output, so Windows runs don't churn it
+├── .python-version        # the interpreter uv installs; CI reads it too
 ├── pyproject.toml         # dependencies and uv metadata
 ├── uv.lock                # lock file
 ├── ROADMAP.md             # features under consideration
@@ -833,11 +856,13 @@ Bird-of-the-day/
 ## Attribution and legal notes
 
 - **eBird API**: non-commercial use is permitted under the
-  [eBird API Terms of Use](https://ebird.org/api/keygen). A run makes one
-  observations query for the pool it drew (one more per re-roll under the
-  `skip` policy). The two taxonomy downloads, the localized one and the
-  English one the cross-linker needs, sit behind on-disk caches with a
-  30-day TTL, so neither is fetched more than once a month.
+  [eBird API Terms of Use](https://ebird.org/api/keygen). A run that draws
+  a `regional` or `europe_random` pool makes one observations query per
+  selection attempt, which is one on every policy but `skip`. A run that
+  draws the `global_taxonomy` pool makes none at all: it reads the taxonomy
+  it already has on disk. The two taxonomy downloads, the localized one and
+  the English one the cross-linker needs, each sit behind an on-disk cache
+  with a 30-day TTL, so neither is fetched more than once a month.
 - **Macaulay Library**: photographs are © their authors. The project
   hot-links the public Cornell CDN for non-commercial display with
   visible photographer attribution, mirroring the embed flow Cornell
