@@ -3,15 +3,25 @@
 import json
 from unittest.mock import MagicMock, patch
 
+from scripts import image_fetcher
 from scripts.backfill import run_backfill
 from scripts.distribution_map import MATCH_ERROR, MATCH_NONE, MATCH_OK
+from scripts.image_fetcher import CDN_BASE, ImageResult
 from scripts.llm_enricher import EnrichedContent
 
 
-def _history(*codes_dates):
+def _history(*codes_dates, image_url=CDN_BASE + "/1/900"):
+    """A history whose entries all carry a usable photograph.
+
+    A real entry always has an ``imageUrl`` key, so these tests would not
+    otherwise exercise what they mean to: an entry with no photograph is
+    itself a healable state, and it would consume the run's budget before
+    GBIF and enrichment ever ran. Pass ``image_url=None`` to test that.
+    """
     return {"entries": [
         {"speciesCode": c, "comName": c.upper(), "sciName": f"Genus {c}",
-         "date": d}
+         "date": d, "imageUrl": image_url, "photographer": "P",
+         "attribution": "P / Macaulay Library"}
         for c, d in codes_dates
     ]}
 
@@ -188,10 +198,118 @@ class TestGbifBackfill:
         _write_enrichment(tmp_path, "aaa")
         history = {"entries": [
             {"speciesCode": "aaa", "comName": "AAA", "sciName": "",
-             "date": "2026-01-01"},
+             "date": "2026-01-01", "imageUrl": CDN_BASE + "/1/900"},
         ]}
         with patch("scripts.backfill.distribution_map.gbif_taxon_match_ex") as m:
             with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):
                 actions = _run(history, tmp_path)
         assert actions == []
         assert m.call_count == 0
+
+
+class TestImageBackfill:
+    """Una entrada sin foto, o con una foto rota, se vuelve a pedir.
+
+    Llegó a producción dos veces: eBird sirve la etiqueta del héroe
+    incluso para especies de las que no tiene héroe, con el id vacío, y
+    ".../asset//900" es un 404 que el lector ve como un agujero en la
+    lámina. El arreglo de `image_fetcher` evita el siguiente caso; esto
+    repara los que ya están escritos en el historial.
+    """
+
+    def _fake_fetch(self, monkeypatch, result, calls=None):
+        def _fetch(code, session=None, locale="en", *, ordinal=0,
+                   seen_asset_ids=frozenset()):
+            if calls is not None:
+                calls.append((code, ordinal, sorted(seen_asset_ids)))
+            return result
+
+        monkeypatch.setattr(image_fetcher, "fetch_image", _fetch)
+
+    def test_a_url_without_an_asset_id_is_healed(self, tmp_path, monkeypatch):
+        history = _history(("aaa", "2026-01-01"), image_url=CDN_BASE + "//900")
+        _write_content(tmp_path, "aaa")
+        _write_enrichment(tmp_path, "aaa")
+        self._fake_fetch(monkeypatch, ImageResult(
+            url=CDN_BASE + "/777/1200", asset_id="777", photographer="R",
+            attribution="R / Macaulay Library", search_url="s",
+        ))
+        actions = _run(history, tmp_path)
+        assert ("image", True) in [(a.kind, a.ok) for a in actions]
+        entry = history["entries"][0]
+        assert entry["imageUrl"] == CDN_BASE + "/777/1200"
+        assert entry["photographer"] == "R"
+
+    def test_a_healthy_url_is_left_alone(self, tmp_path, monkeypatch):
+        history = _history(("aaa", "2026-01-01"))
+        _write_content(tmp_path, "aaa")
+        _write_enrichment(tmp_path, "aaa")
+        calls = []
+        self._fake_fetch(monkeypatch, ImageResult(
+            url="x", asset_id="9", photographer="", attribution="",
+            search_url="s",
+        ), calls)
+        _run(history, tmp_path)
+        assert calls == []
+
+    def test_a_failed_retry_clears_the_broken_url(self, tmp_path, monkeypatch):
+        """Un hueco honesto es mejor que una imagen rota."""
+        history = _history(("aaa", "2026-01-01"), image_url=CDN_BASE + "//900")
+        _write_content(tmp_path, "aaa")
+        _write_enrichment(tmp_path, "aaa")
+        self._fake_fetch(monkeypatch, ImageResult(
+            url=None, asset_id=None, photographer="",
+            attribution="Macaulay Library / Cornell Lab of Ornithology",
+            search_url="s",
+        ))
+        actions = _run(history, tmp_path)
+        assert ("image", False) in [(a.kind, a.ok) for a in actions]
+        assert history["entries"][0]["imageUrl"] is None
+
+    def test_the_cache_moves_with_the_history(self, tmp_path, monkeypatch):
+        """El sitio renderiza desde la caché cuando la hay, así que curar
+        solo el historial no arreglaría nada."""
+        history = _history(("aaa", "2026-01-01"), image_url=CDN_BASE + "//900")
+        _write_content(tmp_path, "aaa")
+        _write_enrichment(tmp_path, "aaa")
+        self._fake_fetch(monkeypatch, ImageResult(
+            url=CDN_BASE + "/777/1200", asset_id="777", photographer="R",
+            attribution="R / Macaulay Library", search_url="s",
+        ))
+        _run(history, tmp_path)
+        cached = image_fetcher.load_cached_image("aaa", str(tmp_path), ordinal=0)
+        assert cached is not None and cached.asset_id == "777"
+
+    def test_a_repeat_heals_its_own_publication_only(self, tmp_path, monkeypatch):
+        """La misma especie dos veces: se repara la publicación rota, con
+        su ordinal, y sin repetir la foto de la otra."""
+        history = _history(("aaa", "2026-01-01"), ("aaa", "2026-05-01"))
+        history["entries"][0]["imageUrl"] = CDN_BASE + "/111/900"
+        history["entries"][1]["imageUrl"] = CDN_BASE + "//900"
+        _write_content(tmp_path, "aaa")
+        _write_enrichment(tmp_path, "aaa")
+        calls = []
+        self._fake_fetch(monkeypatch, ImageResult(
+            url=CDN_BASE + "/222/1200", asset_id="222", photographer="R",
+            attribution="R / Macaulay Library", search_url="s",
+        ), calls)
+        _run(history, tmp_path)
+        assert calls == [("aaa", 1, ["111"])]
+        assert history["entries"][0]["imageUrl"] == CDN_BASE + "/111/900"
+        assert history["entries"][1]["imageUrl"] == CDN_BASE + "/222/1200"
+
+    def test_images_share_the_run_budget(self, tmp_path, monkeypatch):
+        history = _history(
+            ("aaa", "2026-01-01"), ("bbb", "2026-01-02"), ("ccc", "2026-01-03"),
+            image_url=CDN_BASE + "//900",
+        )
+        for code in ("aaa", "bbb", "ccc"):
+            _write_content(tmp_path, code)
+            _write_enrichment(tmp_path, code)
+        self._fake_fetch(monkeypatch, ImageResult(
+            url=CDN_BASE + "/9/1200", asset_id="9", photographer="R",
+            attribution="R / Macaulay Library", search_url="s",
+        ))
+        actions = _run(history, tmp_path, limit=2)
+        assert len(actions) == 2
+        assert {a.species_code for a in actions} == {"ccc", "bbb"}

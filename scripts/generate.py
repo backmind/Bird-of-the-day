@@ -23,6 +23,7 @@ import requests
 
 from scripts import (
     archive_builder,
+    atomic_io,
     backfill,
     content_scraper,
     ebird_client,
@@ -227,8 +228,17 @@ def load_history() -> dict:
 
 
 def save_history(history: dict) -> None:
-    HISTORY_PATH.write_text(
-        json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8"
+    """Persist the history, atomically.
+
+    ``history.json`` is the single source of truth: every page, both
+    feeds and the whole deduplication window are derived from it, and
+    nothing else on disk can rebuild it. A plain write truncates the file
+    before writing, so a run killed in that window (a cancelled cron
+    tick, a machine losing power) leaves an empty or half-written
+    document behind. The temporary-file-and-replace path closes it.
+    """
+    atomic_io.write_text_if_changed(
+        HISTORY_PATH, json.dumps(history, ensure_ascii=False, indent=2)
     )
 
 
@@ -834,6 +844,12 @@ def main() -> None:
                 report.info(f"backfill healed {action.kind} for {action.species_code}")
             else:
                 report.warn(f"backfill {action.kind} for {action.species_code} failed")
+
+        # Healing a photograph rewrites the history entry itself, not just
+        # a cache, so it has to be persisted here. This path also runs on
+        # an already-published day, where nothing else writes the history.
+        if any(a.kind == "image" for a in actions):
+            save_history(history)
 
         # Idempotency: today's entry is already published. Republish only
         # when backfill actually changed something.
