@@ -95,8 +95,8 @@ def _heal_images(
         ordinal = sum(1 for e in entries[:index] if e.get("speciesCode") == code)
         seen = frozenset(
             asset
-            for i, e in enumerate(entries)
-            if e.get("speciesCode") == code and i != index
+            for e in entries
+            if e.get("speciesCode") == code
             for asset in [image_fetcher.asset_id_from_url(e.get("imageUrl"))]
             if asset
         )
@@ -110,9 +110,19 @@ def _heal_images(
         entry["imageUrl"] = image.url
         entry["photographer"] = image.photographer
         entry["attribution"] = image.attribution
-        image_fetcher.save_cached_image(code, image, cache_dir, ordinal=ordinal)
 
         ok = bool(image.url)
+        if ok:
+            image_fetcher.save_cached_image(code, image, cache_dir, ordinal=ordinal)
+        else:
+            # save_cached_image declines to store a failure, by design, so
+            # the stale cache would survive and the site would keep
+            # rendering the broken URL we just cleared from the history.
+            # Delete it instead: the two have to agree, and the renderer
+            # falls back to the history when there is no cache.
+            image_fetcher.image_cache_path(code, cache_dir, ordinal).unlink(
+                missing_ok=True
+            )
         actions.append(BackfillAction(code, "image", ok))
         logger.info(
             "backfill image for %s: %s",
@@ -150,9 +160,14 @@ def run_backfill(
     if limit <= 0:
         return actions
 
-    # Photographs go first, and share the run's budget. A missing photo is
-    # the most visible thing an entry can be missing: the plate is the
-    # page. ``ebird_locale`` is the resolved locale the caller has already
+    # Photographs go first, because a missing photo is the most visible
+    # thing an entry can be missing: the plate is the page. They get half
+    # the run's budget and never less than one slot, so that a photograph
+    # nothing can fix cannot silently disable the other two healers. An
+    # unhealable photo is retried on every run, by the same rule the other
+    # kinds follow, and half a budget bounds what that costs.
+    #
+    # ``ebird_locale`` is the resolved locale the caller has already
     # written back into the config, the same one the daily fetch uses.
     actions.extend(
         _heal_images(
@@ -160,7 +175,7 @@ def run_backfill(
             cache_dir,
             config.get("ebird_locale") or "en",
             session,
-            limit,
+            max(1, limit // 2),
         )
     )
     if len(actions) >= limit:

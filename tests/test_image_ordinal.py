@@ -3,19 +3,19 @@
 from scripts import image_fetcher
 from scripts.image_fetcher import (
     ImageResult,
-    _image_cache_path,
+    image_cache_path,
     asset_id_from_url,
 )
 
 
 def test_debut_keeps_the_historic_cache_name():
-    assert _image_cache_path("cometi1", "cache").name == "cometi1.image.json"
-    assert _image_cache_path("cometi1", "cache", 0).name == "cometi1.image.json"
+    assert image_cache_path("cometi1", "cache").name == "cometi1.image.json"
+    assert image_cache_path("cometi1", "cache", 0).name == "cometi1.image.json"
 
 
 def test_republications_get_their_own_cache_file():
-    assert _image_cache_path("cometi1", "cache", 1).name == "cometi1.image-2.json"
-    assert _image_cache_path("cometi1", "cache", 2).name == "cometi1.image-3.json"
+    assert image_cache_path("cometi1", "cache", 1).name == "cometi1.image-2.json"
+    assert image_cache_path("cometi1", "cache", 2).name == "cometi1.image-3.json"
 
 
 def test_asset_id_is_read_back_from_the_url():

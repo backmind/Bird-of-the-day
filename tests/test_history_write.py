@@ -23,11 +23,16 @@ def test_history_round_trips(tmp_path, monkeypatch):
 
 
 def test_an_unchanged_history_is_not_rewritten(tmp_path, monkeypatch):
-    """El commit diario no puede ensuciarse con un fichero que no cambió."""
+    """El commit diario no puede ensuciarse con un fichero que no cambió.
+
+    Cuenta los ``os.replace`` en los dos sentidos: sin el cambio, uno
+    idéntico tampoco lo llama, así que afirmar solo que no se llama lo
+    cumpliría cualquier implementación.
+    """
     path = tmp_path / "history.json"
     monkeypatch.setattr(generate, "HISTORY_PATH", path)
     generate.save_history(HISTORY)
-    before = path.stat().st_mtime_ns
+
     calls = []
     real_replace = atomic_io.os.replace
     monkeypatch.setattr(
@@ -35,8 +40,13 @@ def test_an_unchanged_history_is_not_rewritten(tmp_path, monkeypatch):
         lambda *a: (calls.append(a), real_replace(*a))[1],
     )
     generate.save_history(HISTORY)
-    assert calls == []
-    assert path.stat().st_mtime_ns == before
+    assert calls == [], "un historial idéntico no se reescribe"
+
+    generate.save_history({"entries": [{"speciesCode": "bbb"}]})
+    assert len(calls) == 1, "uno distinto sí, y por la vía atómica"
+    assert json.loads(path.read_text(encoding="utf-8"))["entries"][0][
+        "speciesCode"
+    ] == "bbb"
 
 
 def test_a_crash_mid_write_leaves_the_previous_history_intact(

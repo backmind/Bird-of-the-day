@@ -846,10 +846,13 @@ def main() -> None:
                 report.warn(f"backfill {action.kind} for {action.species_code} failed")
 
         # Healing a photograph rewrites the history entry itself, not just
-        # a cache, so it has to be persisted here. This path also runs on
+        # a cache, so it has to be persisted here: this path also runs on
         # an already-published day, where nothing else writes the history.
-        if any(a.kind == "image" for a in actions):
-            save_history(history)
+        # Unconditional on purpose. Deciding from the action kinds would
+        # be one more thing to keep in step with backfill every time a
+        # healable state is added, and the write is content-addressed, so
+        # a run that healed nothing does not touch the file.
+        save_history(history)
 
         # Idempotency: today's entry is already published. Republish only
         # when backfill actually changed something.

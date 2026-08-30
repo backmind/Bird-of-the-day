@@ -273,7 +273,12 @@ def fetch_image(
     order runs anyway: repeating a photograph beats publishing without one.
     """
     sess = session or new_session()
-    if ordinal:
+    # A debut normally has nothing to skip, so the ordinal alone used to
+    # decide this. The backfill breaks that: it re-fetches the photograph
+    # of an entry published long ago, and the species may have come round
+    # again since, with a photograph the reader has already seen. Whenever
+    # there is something to skip, walk the rated list.
+    if ordinal or seen_asset_ids:
         result = _try_macaulay_api(
             species_code, sess,
             count=ordinal + MACAULAY_LOOKAHEAD,
@@ -290,7 +295,7 @@ def fetch_image(
     return _fallback(species_code)
 
 
-def _image_cache_path(
+def image_cache_path(
     species_code: str, cache_dir: str, ordinal: int = 0
 ) -> Path:
     """Cache file for one publication's photograph.
@@ -308,7 +313,7 @@ def load_cached_image(
 ) -> ImageResult | None:
     from scripts import load_json_cache
     data = load_json_cache(
-        _image_cache_path(species_code, cache_dir, ordinal),
+        image_cache_path(species_code, cache_dir, ordinal),
         f"image cache for {species_code}",
     )
     if data is None:
@@ -327,7 +332,7 @@ def save_cached_image(
     """Persist a successful image lookup. Failures are not cached so they retry."""
     if not result.asset_id and not result.url:
         return
-    path = _image_cache_path(species_code, cache_dir, ordinal)
+    path = image_cache_path(species_code, cache_dir, ordinal)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
