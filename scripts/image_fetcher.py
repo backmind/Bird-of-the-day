@@ -120,10 +120,18 @@ def _try_macaulay_api(
         resp.raise_for_status()
         data = resp.json()
     except (requests.RequestException, ValueError) as e:
-        logger.debug("ML API failed for %s: %s", species_code, e)
+        # Not debug: this strategy is the only one that can find a
+        # photograph eBird has not curated, and the only one that can find
+        # a *different* photograph for a republication. When it stops
+        # answering, both features go quiet with nothing to show for it.
+        # Macaulay put an anti-bot gateway in front of this endpoint on
+        # 2026-08-30, which arrives as a 200 carrying an HTML challenge,
+        # so the JSON parse is what fails and the message is worth having.
+        logger.warning("ML search API unavailable for %s: %s", species_code, e)
         return None
 
     if not isinstance(data, dict):
+        logger.warning("ML search API returned no object for %s", species_code)
         return None
     content = data.get("results", {}).get("content", []) or []
 
