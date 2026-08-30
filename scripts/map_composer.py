@@ -17,7 +17,7 @@ import requests
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFont
 
 from scripts import content_scraper
-from scripts.http_client import download_image
+from scripts.http_client import NoImageAvailable, download_image
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +256,22 @@ def ensure_composed_maps(
                 )
                 return result
 
-        if compose_map(content.distribution_map_url, out, session, basemap):
+        try:
+            composed = compose_map(
+                content.distribution_map_url, out, session, basemap
+            )
+        except NoImageAvailable:
+            # GBIF has no occurrences to draw for this taxon. That is an
+            # answer, not an outage, so record it by dropping the map URL:
+            # this loop retries anything without a composed PNG on every
+            # run, and the run report warns about anything with a map URL
+            # and no PNG. Both stop asking now, and the plate falls back
+            # to the layout it already uses for a species with no map.
+            logger.info("GBIF has no map to draw for %s; not retrying", code)
+            content.distribution_map_url = ""
+            content_scraper.save_cached_content(code, content, cache_dir)
+            continue
+        if composed:
             result[code] = f"maps/{code}.png"
 
     return result

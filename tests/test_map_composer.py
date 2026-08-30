@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
+from scripts.http_client import NoImageAvailable
 from scripts.map_composer import _apply_filters, compose_map, ensure_composed_maps
 
 
@@ -147,3 +148,51 @@ class TestEnsureComposedMaps:
         assert "bird1" in result
         assert result["bird1"] == "maps/bird1.png"
         assert (maps_dir / "bird1.png").exists()
+
+
+class TestGbifHasNothingToDraw:
+    """GBIF contesta 204 para un taxón sin ocurrencias que dibujar.
+
+    Es una respuesta definitiva, no una avería, y hay que anotarla: este
+    bucle reintenta cada run todo lo que no tenga PNG compuesto, así que
+    sin anotarla vuelve a preguntar todos los días para siempre. Le pasó
+    a Pampusana salamonis durante setenta días.
+    """
+
+    def _content(self, url="http://gbif/map.png"):
+        content = MagicMock()
+        content.distribution_map_url = url
+        return content
+
+    def test_the_map_url_is_dropped_and_the_cache_saved(self, tmp_path):
+        entries = [{"speciesCode": "bird1"}]
+        content = self._content()
+        with patch("scripts.map_composer.content_scraper") as mock_cs:
+            mock_cs.load_cached_content.return_value = content
+            with patch("scripts.map_composer.download_image",
+                       side_effect=NoImageAvailable("http://gbif/map.png")):
+                with patch("scripts.map_composer.load_basemap",
+                           return_value=_make_rgba(size=(8, 8))):
+                    result = ensure_composed_maps(
+                        entries, str(tmp_path / "cache"), tmp_path / "maps"
+                    )
+        assert result == {}
+        assert content.distribution_map_url == ""
+        mock_cs.save_cached_content.assert_called_once()
+        assert mock_cs.save_cached_content.call_args.args[0] == "bird1"
+
+    def test_a_transient_failure_leaves_the_url_alone(self, tmp_path):
+        """Solo el 204 es definitivo: una caída de red se reintenta."""
+        entries = [{"speciesCode": "bird1"}]
+        content = self._content()
+        with patch("scripts.map_composer.content_scraper") as mock_cs:
+            mock_cs.load_cached_content.return_value = content
+            with patch("scripts.map_composer.download_image", return_value=None):
+                with patch("scripts.map_composer.load_basemap",
+                           return_value=_make_rgba(size=(8, 8))):
+                    result = ensure_composed_maps(
+                        entries, str(tmp_path / "cache"), tmp_path / "maps"
+                    )
+        assert result == {}
+        assert content.distribution_map_url == "http://gbif/map.png"
+        mock_cs.save_cached_content.assert_not_called()

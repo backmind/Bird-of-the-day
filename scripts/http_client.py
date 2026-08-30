@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 15
 
 
+class NoImageAvailable(Exception):
+    """The server answered successfully, with no image to give.
+
+    GBIF's map tiles answer ``204 No Content`` for a taxon it has no
+    occurrences to draw, which is an authoritative "there is no map here"
+    rather than a transient failure. The two have to be distinguishable
+    or the caller retries, every run, something that will never succeed:
+    that is what happened to *Pampusana salamonis* from 2026-06-21 to
+    2026-08-30, one warning a day with nothing behind it.
+    """
+
+
 def build_session(
     total_retries: int = 4,
     backoff_factor: float = 2.0,
@@ -60,11 +72,19 @@ def download_image(
 
     Returns ``None`` on any network error or when the body is not a
     decodable image (HTML error pages, truncated files).
+
+    Raises :class:`NoImageAvailable` when the server answers successfully
+    with an empty body. ``raise_for_status`` passes a 204, and an empty
+    body reaches Pillow as an unreadable file, so without this the one
+    answer that means "stop asking" arrives looking exactly like the ones
+    that mean "try again later".
     """
     sess = session or build_session()
     try:
         resp = sess.get(url, timeout=timeout)
         resp.raise_for_status()
+        if resp.status_code == 204 or not resp.content:
+            raise NoImageAvailable(url)
         img = Image.open(BytesIO(resp.content))
         img.load()
         return img.convert("RGBA")
