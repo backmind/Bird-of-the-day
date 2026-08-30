@@ -2,7 +2,13 @@ name: Bird of the Day
 
 on:
   schedule:
-    - cron: '0 7 * * *'  # 07:00 UTC — adjust to your timezone
+    # Pick an odd minute, not ':00'. GitHub queues scheduled runs and drops
+    # the ones it cannot serve, and the top of the hour is where every cron
+    # in the world piles up: a ':00' schedule on a real instance of this
+    # template drifted from a steady one hour late to between six and
+    # twelve hours late over three days. A scheduled run is best effort in
+    # any case, so treat the time as a hint, not a promise.
+    - cron: '17 7 * * *'  # 07:17 UTC, adjust to your timezone
   workflow_dispatch:
 
 permissions:

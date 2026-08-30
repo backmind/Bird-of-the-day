@@ -113,7 +113,7 @@ older month bucket.
 ## How it works
 
 ```
-GitHub Actions (cron daily 07:00 UTC)
+GitHub Actions (cron daily 07:17 UTC, best effort)
   │
   ├─ 1. Pool weighted by date (in the shipped example: 35% a state,
   │     27% a country, 23% one random country from a list,
@@ -435,8 +435,16 @@ uv run python -m scripts.generate
 Copy `.github/bird-of-the-day.yml.example` to
 `.github/workflows/bird-of-the-day.yml` to enable the daily cron. It runs:
 
-- Automatically every day at **07:00 UTC**.
+- Automatically every day at **07:17 UTC**, best effort.
 - Manually from the **Actions → Bird of the Day → Run workflow** tab.
+
+The minute is odd on purpose, and the schedule is a hint rather than a
+promise: GitHub queues scheduled runs and drops the ones it cannot
+serve, and the top of the hour is where every cron in the world piles
+up. On a real instance of this template a `':00'` schedule ran about an
+hour late for eleven days, then drifted to between six and twelve hours
+late over the next three. If the publication time matters to you, run
+the Docker container instead, whose cron is your own machine's.
 
 The workflow `git add -f`s `feed.xml`, `history.json`, `index.html`,
 `archive.html`, `birds/`, `cache/`, `maps/` and `assets/` (which carries
