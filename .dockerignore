@@ -51,4 +51,6 @@ Thumbs.db
 
 # Docs that don't need to enter the image
 README.md
+ROADMAP.md
+docs/
 LICENSE

@@ -21,7 +21,8 @@ services:
       EBIRD_API_KEY: ${EBIRD_API_KEY:?set EBIRD_API_KEY in your shell or .env}
       # Uncomment any of these to override individual config knobs without
       # mounting a custom config.json. Complex structures like `pools`
-      # require mounting the file (see README → "Mounting a custom config").
+      # require mounting the file (see docs/DEPLOYMENT.md, "Mounting a
+      # custom data/config.json").
       # BOTD_LANGUAGE: en
       # BOTD_DESCRIPTION_POLICY: foreign_fallback
       # BOTD_FEED_LINK: https://example.com/birds/

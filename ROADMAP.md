@@ -7,6 +7,7 @@ Features under consideration. Contributions welcome.
 The hero photo is a single image from Macaulay Library. A lightweight carousel with left/right arrows would let the reader browse additional photos of the same species. Macaulay Library's search API supports multiple results per species.
 
 Considerations:
+- Blocked while Macaulay's search API stays gated (see [Open questions](#open-questions)): it is the only source of more than one photo for a species
 - Fetch N images per publication instead of 1. The cache format already stores one photo per publication (`image_fetcher.py` suffixes the cache file by ordinal so a republished species gets a different photo), so this is a change to the fetch, not to the layout on disk
 - Minimal vanilla JS carousel (scroll-snap + arrow buttons), consistent with the current no-framework approach
 - Each photo keeps its own photographer attribution
@@ -43,7 +44,7 @@ Considerations:
 
 ## Deferred on purpose
 
-Four gaps that are known, not forgotten. Each was cut from the work that
+Two gaps that are known, not forgotten. Each was cut from the work that
 would naturally have contained it, and each is written down here with the
 reason, so the next person can weigh it rather than rediscover it.
 
@@ -62,21 +63,50 @@ JS would do it. Cut because this project's rule is that a page renders
 without JavaScript, and search is the first feature that genuinely needs
 it: it deserves a design decision, not a drive-by.
 
-**Atomic writes for `history.json`.** Every generated page and both feeds
-go through `atomic_io.write_text_if_changed`, which writes to a temporary
-file and renames. `history.json` does not: `generate.save_history` calls
-`Path.write_text` directly. A crash mid-write would truncate the one file
-that cannot be regenerated from anything else. Cut because it is a
-correctness fix to the pipeline, not a documentation or web-quality one,
-and it should land with a test that actually simulates the interrupted
-write.
+## Open questions
 
-**An end-to-end test of `generate.main()`.** Every stage is covered in
-isolation and the wiring between several pairs of them is covered too, but
-nothing exercises the orchestrator top to bottom against fakes. The
-ordering guarantees it maintains (maintenance before publication, site
-before feeds) are currently held up by comments and by review. Cut for
-scope; it needs a fake for every outbound call the run makes.
+**Macaulay's search API went behind an anti-bot gateway on 2026-08-30.**
+The endpoint answers `200` with an HTML challenge instead of JSON, for
+this project's own identifying user agent and for a real browser alike.
+Nothing crashes: the JSON parse fails, the strategy returns nothing, and
+the run keeps going. But that strategy is the only one that can find a
+photograph eBird has not curated, and the only one that can find a
+*different* photograph for a republication, so while the gateway stands
+the different-photo-per-republication feature is inert. A repeat now
+falls back to the curated eBird hero, which is the photograph the first
+publication already used. The failed call is now logged as a warning
+instead of being swallowed at debug level, so the outage is at least
+visible in the run log while it lasts.
+
+The consequence for a species eBird has not curated at all is that the
+entry publishes with no photograph, and that state is deliberately not
+retried (see below), so it stays that way: the plate degrades to its
+honest gap with a link to search Macaulay by hand. The open part is what
+to do if the gateway is permanent. There is no public, documented
+Macaulay search endpoint to move to, so the choices are to find a
+supported access path, to add a second photo source, or to accept that
+every photograph comes from eBird's curation and retire the republication
+feature.
+
+**Absence and failure are still not the same answer.** Three production
+bugs fixed on 2026-08-30 shared one root: the code read "the source has
+nothing" as "the fetch failed". eBird emits an `og:image` tag even for a
+species it has no hero for, leaving the asset id out, and that URL was
+published as a broken image. GBIF answers `204 No Content` for a taxon it
+has no occurrences to map, and the map composer asked again on every run
+for the seventy days after the entry was published. The first photograph
+healer retried entries with no photograph at all, so the newest one took
+the single image slot every run and older, genuinely broken URLs were
+never reached. All three are fixed the same way: record the authoritative
+"there is nothing" and stop retrying it.
+
+The convention is not universal yet. GBIF has explicit `MATCH_NONE` and
+`MATCH_ERROR` states and the photograph healer encodes the distinction in
+the URL it finds, but enrichment has no "gave up" marker at all: an entry
+the LLM keeps refusing is retried on every run for ever, spending a slot
+each time. It is bounded by `backfill_limit` and cheap, which is why it
+was left alone, but anything that adds a fourth healable state should
+settle the question rather than add a fourth answer to it.
 
 ## Known limits of the current selection
 
