@@ -236,13 +236,15 @@ def _render_footer(ctx: RenderContext) -> str:
     goes through ``_esc`` before it ever reaches ``t()``, and
     ``site_author_url`` is only ever used inside an ``href`` attribute
     after the same escaping, so neither can break out of the markup.
-    Emitted only when ``site_author`` is configured; the template credit
-    stands on its own otherwise.
+    Emitted only when ``site_author`` is configured, and in its own
+    ``<p>``, separate from the template credit's: the two authorships
+    must stay distinguishable structurally, not just by where a sentence
+    happens to break, since the template credit is what has to survive
+    any clone unchanged.
     """
     t = ctx.catalog.t
     year = datetime.now(timezone.utc).year
-    template_credit = t("footer.template_credit_html")
-    credit_line = template_credit
+    author_paragraph = ""
     if ctx.site_author:
         name_html = _esc(ctx.site_author)
         if ctx.site_author_url:
@@ -251,12 +253,12 @@ def _render_footer(ctx: RenderContext) -> str:
                 f'rel="noopener">{name_html}</a>'
             )
         author_line = t("footer.author_template", year=year, name=name_html)
-        credit_line = f"{author_line} {template_credit}"
+        author_paragraph = f"  <p>{author_line}</p>\n"
     return f"""
 <footer class="site">
   <p>{t("footer.data_credit_html")}</p>
   <p>{t("footer.photos_credit_html")}</p>
-  <p>{credit_line}</p>
+{author_paragraph}  <p>{t("footer.template_credit_html")}</p>
 </footer>
 """.strip()
 

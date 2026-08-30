@@ -138,15 +138,31 @@ class TestReducedMotion:
     def test_media_query_is_present(self):
         assert "@media (prefers-reduced-motion: reduce)" in site_css.CSS
 
-    def test_it_neutralizes_transitions_and_the_hover_transforms(self):
+    def test_it_neutralizes_transitions_and_animations(self):
         body = _extract_block(
             site_css.CSS, "@media (prefers-reduced-motion: reduce)"
         )
         assert "transition-duration" in body
         assert "animation-duration" in body
-        # At least one of the hover effects that visibly moves something
-        # (image zoom, icon rotation, badge scale) is reset to no motion.
-        assert re.search(r":hover[^{]*\{[^}]*transform:\s*none", body)
+
+    def test_each_hover_transform_effect_is_individually_reset(self):
+        # Checked one at a time on purpose: a single regex that matches
+        # if any one selector survives would still pass after silently
+        # deleting three of the four (e.g. keeping only
+        # .theme-toggle:hover), which is exactly the regression this
+        # test exists to catch.
+        body = _extract_block(
+            site_css.CSS, "@media (prefers-reduced-motion: reduce)"
+        )
+        for selector in (
+            ".plate:hover .plate-image img",
+            ".card a:hover .card-thumb img",
+            ".theme-toggle:hover",
+            ".iucn-badge:hover",
+        ):
+            assert selector in body, selector
+            rule_body = _extract_block(body, selector)
+            assert "transform: none" in rule_body, selector
 
 
 class TestFooterWithoutSiteAuthor:
@@ -184,14 +200,32 @@ class TestFooterWithSiteAuthor:
         assert ">Jane</a>" in html
 
     def test_name_is_plain_text_without_a_url(self):
-        # The template credit's own anchor lives in the same paragraph,
+        # The template credit's own anchor lives in the same footer,
         # so the check has to be anchored on the name itself rather than
-        # on "no <a> in this paragraph at all".
+        # on "no <a> anywhere near it".
         html = site_builder._render_footer(_ctx(site_author="Jane"))
         match = re.search(r"(<a[^>]*>)?Jane(</a>)?", html)
         assert match is not None
         assert match.group(1) is None
         assert match.group(2) is None
+
+    def test_author_line_and_template_credit_are_separate_paragraphs(self):
+        # Structural, not prose: the two authorships must not share one
+        # <p>, since the template credit is the half that has to survive
+        # any clone unchanged and a shared sentence only distinguishes
+        # them by where the sentence break falls.
+        html = site_builder._render_footer(_ctx(site_author="Jane Birder"))
+        soup = BeautifulSoup(html, "html.parser")
+        paragraphs = [str(p) for p in soup.find_all("p")]
+        author_paragraphs = [p for p in paragraphs if "Jane Birder" in p]
+        credit_paragraphs = [
+            p for p in paragraphs if "backmind/Bird-of-the-day" in p
+        ]
+        assert len(author_paragraphs) == 1
+        assert len(credit_paragraphs) == 1
+        assert author_paragraphs[0] != credit_paragraphs[0]
+        assert "Jane Birder" not in credit_paragraphs[0]
+        assert "backmind/Bird-of-the-day" not in author_paragraphs[0]
 
 
 class TestCloneNeverPublishesSomeoneElseAsAuthor:
@@ -236,6 +270,30 @@ class TestCloneNeverPublishesSomeoneElseAsAuthor:
         copyright_text = re.search(r"<copyright>(.*?)</copyright>", xml, re.DOTALL)
         assert copyright_text is not None
         assert "Jane Birder" in copyright_text.group(1)
+
+
+class TestSiteAuthorReachesTheBuiltPagesThroughWriteSite:
+    """The wiring, not just the renderer it ends up calling: a config
+    value has to survive ``write_site`` building the ``RenderContext``
+    and forwarding it to every page builder. Every other "with author"
+    test in this file calls ``site_builder._render_footer`` directly,
+    which would still pass if ``write_site`` silently dropped the
+    ``site_author``/``site_author_url`` keyword arguments."""
+
+    def test_site_author_configured_on_write_site_reaches_every_page(
+        self, tmp_path
+    ):
+        archive_builder.write_site(
+            [_entry("d", "2026-08-03", 5)],
+            tmp_path,
+            Catalog.load("en"),
+            feed_link=FEED_LINK,
+            site_author="Jane Birder",
+            site_author_url="https://jane.example/",
+        )
+        for name, html in _pages(tmp_path).items():
+            assert "Jane Birder" in html, name
+            assert 'href="https://jane.example/"' in html, name
 
 
 class TestTemplateCreditCatalogParity:
