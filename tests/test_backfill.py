@@ -13,10 +13,10 @@ from scripts.llm_enricher import EnrichedContent
 def _history(*codes_dates, image_url=CDN_BASE + "/1/900"):
     """A history whose entries all carry a usable photograph.
 
-    A real entry always has an ``imageUrl`` key, so these tests would not
-    otherwise exercise what they mean to: an entry with no photograph is
-    itself a healable state, and it would consume the run's budget before
-    GBIF and enrichment ever ran. Pass ``image_url=None`` to test that.
+    A real entry always has an ``imageUrl`` key, and these tests are about
+    the other two healers, so the default keeps photographs out of the
+    way. Pass a URL with no asset id to make an entry healable, or
+    ``image_url=None`` for the resolved "looked, found nothing" state.
     """
     return {"entries": [
         {"speciesCode": c, "comName": c.upper(), "sciName": f"Genus {c}",
@@ -398,3 +398,37 @@ class TestImageBackfill:
         kinds = [a.kind for a in actions]
         assert kinds.count("image") == 1
         assert kinds.count("gbif") == 2
+
+    def test_an_absent_photograph_is_not_retried(self, tmp_path, monkeypatch):
+        """Sin foto significa que se preguntó a todas las vías y ninguna
+        respondió. Es el mismo "no hay nada que encontrar" que impide al
+        curado de GBIF reintentar MATCH_NONE para siempre."""
+        history = _history(("aaa", "2026-01-01"), image_url=None)
+        _write_content(tmp_path, "aaa")
+        _write_enrichment(tmp_path, "aaa")
+        calls = []
+        self._fake_fetch(monkeypatch, ImageResult(
+            url=None, asset_id=None, photographer="", attribution="a",
+            search_url="s",
+        ), calls)
+        actions = _run(history, tmp_path)
+        assert calls == []
+        assert [a.kind for a in actions] == []
+
+    def test_an_older_broken_entry_is_reached(self, tmp_path, monkeypatch):
+        """Con una sola ranura, reintentar las vacías dejaba ganar siempre
+        a la más nueva y una rota más vieja no se curaba nunca."""
+        history = _history(("aaa", "2026-01-01"), ("bbb", "2026-06-01"))
+        history["entries"][0]["imageUrl"] = CDN_BASE + "//900"
+        history["entries"][1]["imageUrl"] = None
+        for code in ("aaa", "bbb"):
+            _write_content(tmp_path, code)
+            _write_enrichment(tmp_path, code)
+        calls = []
+        self._fake_fetch(monkeypatch, ImageResult(
+            url=CDN_BASE + "/9/1200", asset_id="9", photographer="R",
+            attribution="a", search_url="s",
+        ), calls)
+        actions = _run(history, tmp_path, limit=1)
+        assert [a.species_code for a in actions] == ["aaa"]
+        assert history["entries"][0]["imageUrl"] == CDN_BASE + "/9/1200"

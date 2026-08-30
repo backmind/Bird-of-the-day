@@ -7,7 +7,7 @@ run so a long outage can't turn one cron tick into an hour of API calls.
 
 Healable states:
 
-- An entry with no photograph, or with one whose URL carries no asset id.
+- An entry whose photograph URL carries no asset id, and so renders broken.
 - Missing ``{code}.enriched.json`` while an LLM is configured.
 - ``gbif_match == MATCH_ERROR`` (or a legacy cache with no taxon key and
   no recorded state): the taxon lookup failed transiently and was never
@@ -44,17 +44,27 @@ class BackfillAction:
 
 
 def _needs_image(image_url: str | None) -> bool:
-    """Whether an entry's photograph never resolved.
+    """Whether an entry's photograph is *broken*, as opposed to absent.
 
-    Two shapes reach the history. An empty ``imageUrl``, when every
-    strategy declined, and a Macaulay CDN URL with no asset id in it,
-    which older revisions published when eBird served a hero tag for a
-    species it had no hero for. Both render as a hole where the plate's
-    photograph belongs, and the second one is worse: a broken image
-    rather than an honest gap.
+    Healable means a Macaulay CDN URL with no asset id in it, which older
+    revisions published when eBird served a hero tag for a species it had
+    no hero for. That is a defect: the reader gets a broken image.
+
+    An empty ``imageUrl`` is **not** healable. It means every strategy was
+    asked and none answered, which is the same authoritative "nothing to
+    find" that stops the GBIF healer from retrying ``MATCH_NONE`` for
+    ever. Retrying it instead is what a first version of this did, and
+    with one image slot per run the newest photoless entry won every time,
+    so an older broken one was never reached and a warning repeated on
+    every run with nothing behind it.
+
+    The cost, stated plainly: an entry that got no photograph because
+    Macaulay was briefly unreachable keeps none. Its plate degrades to the
+    honest gap with a search link, and a reader who wants the bird can
+    follow it.
     """
     if not image_url:
-        return True
+        return False
     return (
         image_url.startswith(image_fetcher.CDN_BASE)
         and image_fetcher.asset_id_from_url(image_url) is None
@@ -68,7 +78,7 @@ def _heal_images(
     session: requests.Session | None,
     limit: int,
 ) -> list[BackfillAction]:
-    """Re-fetch photographs for entries that never got one.
+    """Re-fetch photographs for entries whose URL is broken.
 
     Walks entries newest first, and per entry rather than per species:
     the same bird can be published more than once, each publication with
@@ -146,10 +156,10 @@ def run_backfill(
     """Retry failed photographs, enrichments and GBIF lookups.
 
     Photographs are healed per entry (see :func:`_heal_images`), which
-    **mutates** ``history``; the caller has to persist it when any action
-    of kind ``"image"`` comes back. The other two are healed per species,
-    walking history newest first and deduplicated by code, because their
-    caches are per species rather than per publication.
+    **mutates** ``history``, so the caller has to persist it. The other
+    two are healed per species, walking history newest first and
+    deduplicated by code, because their caches are per species rather
+    than per publication.
 
     Every attempt (successful or not) counts against ``limit`` so a
     persistent outage doesn't hammer the endpoints on every run.
@@ -160,12 +170,12 @@ def run_backfill(
     if limit <= 0:
         return actions
 
-    # Photographs go first, because a missing photo is the most visible
-    # thing an entry can be missing: the plate is the page. They get half
-    # the run's budget and never less than one slot, so that a photograph
-    # nothing can fix cannot silently disable the other two healers. An
-    # unhealable photo is retried on every run, by the same rule the other
-    # kinds follow, and half a budget bounds what that costs.
+    # Photographs go first, because a broken one is the most visible thing
+    # an entry can have: the plate is the page. They get half the run's
+    # budget and never less than one slot, so a backlog of broken URLs
+    # cannot disable the other two healers while it works through. Each
+    # one is attempted once and then resolved either way, so the backlog
+    # drains rather than repeating.
     #
     # ``ebird_locale`` is the resolved locale the caller has already
     # written back into the config, the same one the daily fetch uses.
