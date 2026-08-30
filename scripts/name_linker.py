@@ -14,16 +14,22 @@ Pipeline over raw description text:
      Wraps in a link without substitution (the name is already in the
      target language). This pass always runs, catching names written
      in the locale by the LLM or by locale-aware scraping.
-  3. **Short-form pass** — the first (head) word of the localized name
+  3. **Scientific-name pass** — binomial names from the eBird taxonomy,
+     case-insensitive, word-boundary. Wraps in ``<em>``. Runs ahead of
+     the two speculative passes below: a binomial is an exact
+     two-word match from the taxonomy, so it outranks a single word
+     guessed to refer to a species.
+  4. **Short-form pass** — the first (head) word of the localized name
      of species confirmed in passes 1-2, when it is ≥ 4 chars,
      case-sensitive, word-boundary. Spanish species names are
      head-first, so only that first word can stand alone as a
      reference to the species; the matched text is kept verbatim
      (never replaced by the full name).
-  4. **Dirty-substring pass** — full confirmed names as substrings
+  5. **Dirty-substring pass** — full confirmed names as substrings
      (no word boundaries). Catches formatting artifacts.
-  5. **Scientific-name pass** — binomial names from the eBird taxonomy,
-     case-insensitive, word-boundary. Wraps in ``<em>``.
+
+Input is normalised first: Markdown emphasis the model sometimes adds
+around a binomial is dropped, since pass 3 supplies those italics.
 
 Processing happens at render time (not cached) because the set of
 published species changes daily.
@@ -34,7 +40,17 @@ from __future__ import annotations
 import html
 import re
 
-_MIN_SHORTFORM_LEN = 4  # words shorter than this are skipped in pass 3
+_MIN_SHORTFORM_LEN = 4  # words shorter than this are skipped in pass 4
+
+# The prompt asks for plain text and the validator rejects bold, but the
+# model still reaches for single-asterisk emphasis around a binomial
+# ("(*Aegypius monachus*)"). Nothing downstream renders Markdown, so the
+# markers surfaced on the page as literal asterisks. Pass 3 italicises
+# the same binomials from the taxonomy, so the markers are dropped
+# rather than translated. The lookahead and the trailing character class
+# require non-space either side of the run, which leaves arithmetic and
+# footnote asterisks ("5 * 3") untouched.
+_MD_EMPHASIS_RE = re.compile(r"\*(?=[^\s*])([^*\n]*[^\s*])\*")
 
 # Feminine Spanish nouns that take the masculine-looking article "el"/"un"
 # in the singular (stressed initial a-). Determiner rewriting is skipped
@@ -195,15 +211,15 @@ def process_description(
 ) -> str:
     """Substitute English bird names, link locale names, italicise binomials.
 
-    Two-phase pipeline:
-    1. English names → replace with localized name + link.
-    2. Localized names → wrap in link (no substitution needed).
-
-    Both phases feed into the same ``occupied`` set, so a span matched
-    in phase 1 is never re-matched in phase 2.
+    The five passes are documented at the top of this module. They run
+    in decreasing order of certainty and share one ``occupied`` set, so
+    an earlier pass's span is never re-matched by a later one: that
+    ordering is what decides every collision.
     """
+    raw_text = _MD_EMPHASIS_RE.sub(r"\1", raw_text or "")
+
     if not raw_text or (not english_name_index and not code_to_localized):
-        return html.escape(raw_text or "")
+        return html.escape(raw_text)
 
     text_lower = raw_text.lower()
 
@@ -267,41 +283,14 @@ def process_description(
             if _try_add(m.start(), m.end(), repl):
                 confirmed_species[code] = name
 
-    # ── Pass 3: head-word references from confirmed species ─────
-    # Spanish species names are head-first ("Frailecillo Atlantico"),
-    # so only the FIRST word of the localized name can stand alone as
-    # a reference to the species. Matching later words produced false
-    # positives in production ("archipielago de las Salomon" linked
-    # "Salomon" to Paloma Perdiz de las Salomon). The link keeps the
-    # matched text verbatim: substituting the full name mutated
-    # sentences ("del Atlantico Norte" -> "del Frailecillo Atlantico
-    # Norte").
-    for code, full_name in confirmed_species.items():
-        localized = code_to_localized.get(code, full_name)
-        head = (localized.split() or [""])[0] if localized else ""
-        if len(head) < _MIN_SHORTFORM_LEN:
-            continue
-        pattern = re.compile(r"\b" + re.escape(head) + r"\b")
-        for m in pattern.finditer(raw_text):
-            repl = _make_link(code, m.group(), published_anchors, ebird_locale)
-            _try_add(m.start(), m.end(), repl)
-
-    # ── Pass 4: dirty-substring cleanup for confirmed species ───
-
-    for code, full_name in confirmed_species.items():
-        name_lower = full_name.lower()
-        idx = 0
-        while True:
-            pos = text_lower.find(name_lower, idx)
-            if pos < 0:
-                break
-            end_pos = pos + len(full_name)
-            localized = code_to_localized.get(code, raw_text[pos:end_pos])
-            repl = _make_link(code, localized, published_anchors, ebird_locale)
-            _try_add(pos, end_pos, repl)
-            idx = pos + 1
-
-    # ── Pass 5: scientific name italicisation ────────────────────
+    # ── Pass 3: scientific name italicisation ────────────────────
+    # Ahead of passes 4 and 5 on purpose. Spanish bird names routinely
+    # reuse the genus as their head noun (Atlapetes de Anteojos /
+    # Atlapetes melanopsis, Curruca Rabilarga / Curruca undata), and
+    # the head-word pass claimed that first word inside the binomial:
+    # the name came out split across an anchor and never italicised.
+    # An exact two-word match from the taxonomy outranks a single word
+    # guessed to stand for a species.
 
     from scripts import ebird_client  # deferred to avoid circular import
 
@@ -321,6 +310,40 @@ def process_description(
                     m.end(),
                     f"<em>{html.escape(canonical)}</em>",
                 )
+
+    # ── Pass 4: head-word references from confirmed species ─────
+    # Spanish species names are head-first ("Frailecillo Atlantico"),
+    # so only the FIRST word of the localized name can stand alone as
+    # a reference to the species. Matching later words produced false
+    # positives in production ("archipielago de las Salomon" linked
+    # "Salomon" to Paloma Perdiz de las Salomon). The link keeps the
+    # matched text verbatim: substituting the full name mutated
+    # sentences ("del Atlantico Norte" -> "del Frailecillo Atlantico
+    # Norte").
+    for code, full_name in confirmed_species.items():
+        localized = code_to_localized.get(code, full_name)
+        head = (localized.split() or [""])[0] if localized else ""
+        if len(head) < _MIN_SHORTFORM_LEN:
+            continue
+        pattern = re.compile(r"\b" + re.escape(head) + r"\b")
+        for m in pattern.finditer(raw_text):
+            repl = _make_link(code, m.group(), published_anchors, ebird_locale)
+            _try_add(m.start(), m.end(), repl)
+
+    # ── Pass 5: dirty-substring cleanup for confirmed species ───
+
+    for code, full_name in confirmed_species.items():
+        name_lower = full_name.lower()
+        idx = 0
+        while True:
+            pos = text_lower.find(name_lower, idx)
+            if pos < 0:
+                break
+            end_pos = pos + len(full_name)
+            localized = code_to_localized.get(code, raw_text[pos:end_pos])
+            repl = _make_link(code, localized, published_anchors, ebird_locale)
+            _try_add(pos, end_pos, repl)
+            idx = pos + 1
 
     if not matches:
         return html.escape(raw_text)
