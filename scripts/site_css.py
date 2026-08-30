@@ -795,6 +795,12 @@ a.republished-chip:hover {
 }
 .archive-intro p { font-style: italic; color: var(--ink-soft); margin: 0; }
 
+/* The 404's way back. It sits outside .archive-intro so it keeps the
+   ordinary link styling instead of the intro's italic, which means it
+   has to be centred on its own or it drifts left under a centred
+   heading. */
+.notfound-back { text-align: center; }
+
 /* ─── footer ───────────────────────────────────────────────────── */
 footer.site {
   margin-top: 5rem;

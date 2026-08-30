@@ -438,7 +438,8 @@ def build_not_found(ctx: RenderContext) -> str:
             f'<h1>{_esc(t("notfound.title"))}</h1>',
             f'<p>{_esc(t("notfound.message"))}</p>',
             "</div>",
-            f'<p><a href="{_esc(absolute_ctx.u(urls.ARCHIVE_FRONT))}">'
+            f'<p class="notfound-back">'
+            f'<a href="{_esc(absolute_ctx.u(urls.ARCHIVE_FRONT))}">'
             f'{_esc(t("nav.back_to_archive"))}</a></p>',
         ]
     )
