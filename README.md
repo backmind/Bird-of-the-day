@@ -420,17 +420,21 @@ Copy `.github/bird-of-the-day.yml.example` to
 - Manually from the **Actions → Bird of the Day → Run workflow** tab.
 
 The workflow `git add -f`s `feed.xml`, `history.json`, `index.html`,
-`archive.html`, `archive-*.html`, `birds/`, `cache/`, `maps/` and
-`assets/` (which carries the stylesheet, the fonts and the basemap) in
-one command, and then `feed-full.xml`, `sitemap.xml`, `robots.txt` and
-`404.html` one at a time in a loop, each guarded by a test that the file
-exists. That loop is not a stylistic choice and should not be
-"simplified" back into the first command: `git add -f` on a literal path
-that does not exist aborts the whole invocation and leaves nothing
-staged, so a single missing optional file would take the entire commit
-down with it. Those four are genuinely optional: `feed-full.xml` needs a
-cap, `sitemap.xml` needs a `feed_link`, and none of them exists before
-the first successful run.
+`archive.html`, `birds/`, `cache/`, `maps/` and `assets/` (which carries
+the stylesheet, the fonts and the basemap) in one command. Everything
+else goes through a loop that stages one path at a time, guarded by a
+test that the path exists: `archive-*.html`, then `feed-full.xml`,
+`sitemap.xml`, `robots.txt` and `404.html`.
+
+That loop is not a stylistic choice and should not be "simplified" back
+into the first command. `git add -f` on a literal path that does not
+exist fails outright and leaves *nothing* staged, not even the paths it
+had already accepted, and since Actions runs the step under `bash -e`
+that failure kills the run before it reaches the commit. Each of those
+paths can legitimately be absent: `feed-full.xml` needs a feed cap,
+`sitemap.xml` needs a `feed_link`, and on a run that published no bird at
+all there is no month bucket for `archive-*.html` to match, in which case
+the shell leaves the pattern literal and the existence test drops it.
 
 It then commits with a message of the form `🐦 Bird of the day:
 2026-04-11`, rebases onto the remote and pushes. The rebase step names
