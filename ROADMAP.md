@@ -2,6 +2,30 @@
 
 Features under consideration. Contributions welcome.
 
+## What an entry may become
+
+Settled by the project owner, 2026-08-30, and binding on everything
+below.
+
+**An entry does not get longer.** It is already at the upper edge of what
+a daily pill of information should be, and the enrichment prompt is
+written to hold it there. A feature that adds prose to a plate is not a
+richer entry, it is an encyclopedia article arriving one bird at a time,
+which is the thing this project exists not to be.
+
+That does not close the door on better content, it aims it. The way to
+improve an entry is **better raw material for the same length**: more
+citable sources feeding the same paragraph, so the sentence a reader gets
+is truer or more interesting than the one they would have got. Today an
+entry is built from four: eBird's species description, the Wikipedia
+summary in the configured language, the Birds of the World introduction,
+and GBIF for the taxon, the map and the IUCN status. Adding a fifth is
+worth doing; adding a fifth section is not.
+
+Anything that changes the shape rather than the length, a different map,
+more photographs of the same bird, is judged on its own merits and is not
+what this rule is about.
+
 ## Image carousel (frontend)
 
 The hero photo is a single image from Macaulay Library. A lightweight carousel with left/right arrows would let the reader browse additional photos of the same species. Macaulay Library's search API supports multiple results per species.
@@ -33,14 +57,24 @@ Considerations:
 - If not: would require downloading raw occurrence data and rendering custom maps (significantly more complex)
 - Hemisphere-dependent seasons complicate a global map at zoom 0
 
-## Field guide illustrations
+## Field guide illustrations: decided against
 
-AI-generated or sourced illustrations for identification tips. The most complex feature on the roadmap due to copyright constraints on existing field guide art.
+Closed by the project owner, 2026-08-30. Not deferred, not blocked on
+anything: decided.
 
-Considerations:
-- No free API for field guide illustrations exists
-- AI generation (Stable Diffusion, DALL-E) could produce stylised illustrations but quality and accuracy vary
-- Could start with silhouette/outline SVGs generated from species photos
+Identification illustrations were the hardest thing on this list, and the
+reason was never technical. Field guide art is under copyright and there
+is no free API for it, so the only routes were to commission drawings or
+to generate them. Generated bird art is confidently wrong about exactly
+the details an identification tip is for, which makes it worse than no
+illustration at all on a page whose whole claim is that its sources are
+public and cited.
+
+The photographs already solve it. Macaulay's are real birds, they carry
+their photographer's name, and the project displays them under the
+non-commercial embed flow Cornell itself offers. An identification tip
+next to a photograph of the animal is the thing the illustration was
+standing in for.
 
 ## Deferred on purpose
 
