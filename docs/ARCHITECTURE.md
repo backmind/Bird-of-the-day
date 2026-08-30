@@ -67,6 +67,14 @@ A regional pool asks eBird for the species seen in its region over the
 last `back_days` days, up to 1000 species; the `global_taxonomy` pool
 uses the whole eBird world list instead.
 
+A pick can be sent back. **A species with no photograph is re-rolled**,
+under every description policy: the plate is the page, and the world list
+holds plenty of species no source has a usable photograph of. The `skip`
+policy sends a pick back for a second reason, no description in the
+configured language. Both share the `max_skip_retries` budget, and when
+it runs out the last attempt publishes as it is, because a day with no
+entry is worse than a day with a thin one.
+
 Within the pool, each candidate is weighted by `1 / count ** rarity_bias`,
 where `count` is the number of individuals eBird reports for it over that
 window. A species seen once is therefore likelier than one seen a hundred

@@ -669,9 +669,15 @@ def _select_and_fetch(
 ) -> tuple[dict, image_fetcher.ImageResult, content_scraper.SpeciesContent]:
     """Run the species selection loop with image + content fetching.
 
-    For ``strict`` / ``foreign_fallback`` the first pick wins. For ``skip``
-    we re-roll up to ``max_skip_retries`` times until a species with text
-    in the configured language is found.
+    Two things can send a pick back. A species with no photograph is
+    re-rolled under every policy, because the plate is the page and an
+    empty frame on the front one is not a bird of the day. A species with
+    no text in the configured language is re-rolled only under ``skip``.
+
+    Both share one budget, ``max_skip_retries``, and both end the same
+    way: when it runs out the last attempt publishes as it is, gap and
+    all, because a day with no entry at all is worse than a day with a
+    thin one.
 
     ``history_entries`` is the whole history, which the selection reads as
     a recency ordering and the image fetch reads to avoid repeating a
@@ -689,6 +695,7 @@ def _select_and_fetch(
     )
 
     tried_codes: list[str] = []
+    photo_rerolls: list[str] = []
     last_attempt: tuple | None = None
 
     for attempt in range(max_skip + 1):
@@ -741,6 +748,21 @@ def _select_and_fetch(
 
         last_attempt = (species, image, content)
 
+        # No photograph, no bird of the day. This re-roll does not depend
+        # on description_policy: the plate is the page, and a species
+        # eBird has curated no hero for and Macaulay cannot answer for
+        # belongs to another day, not on the front one under an empty
+        # frame. The gap survives as the last resort below, for when the
+        # retries run out.
+        if not image.url:
+            logger.info(
+                "photo reroll #%d: no photograph for %s",
+                attempt + 1, species_code,
+            )
+            photo_rerolls.append(species_code)
+            tried_codes.append(species_code)
+            continue
+
         if description_policy != "skip":
             break
         if content.description:
@@ -752,9 +774,13 @@ def _select_and_fetch(
         tried_codes.append(species_code)
     else:
         logger.warning(
-            "skip exhausted %d retries; publishing last attempt with empty description",
+            "selection exhausted %d retries; publishing the last attempt as it is",
             max_skip,
         )
+        if notes is not None:
+            notes.append(
+                f"selection exhausted {max_skip} retries; published as it is"
+            )
 
     if last_attempt is None:
         raise RuntimeError("Selection loop produced no attempt")
@@ -764,6 +790,12 @@ def _select_and_fetch(
         logger.info("Image: asset %s by %s", image.asset_id, image.photographer or "?")
     else:
         logger.info("No image available, will link to ML Search")
+
+    if photo_rerolls and notes is not None:
+        notes.append(
+            f"rerolled past {len(photo_rerolls)} species with no photograph: "
+            + ", ".join(photo_rerolls)
+        )
 
     return species, image, content
 

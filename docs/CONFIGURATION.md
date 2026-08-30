@@ -166,7 +166,7 @@ Wikipedia) returns text in your configured language:
 |---|---|
 | `foreign_fallback` (default) | Show the original text with a disclaimer naming the source language (e.g. *"Description in English (no French translation available)"*). |
 | `strict` | Show an em-dash placeholder. Never display foreign text. |
-| `skip` | Re-roll species selection up to `max_skip_retries` times. On exhaustion, publishes the last species it tried, whose description is empty and therefore renders exactly as `strict` would. |
+| `skip` | Re-roll species selection when there is no description in the configured language, sharing the `max_skip_retries` budget with the photograph re-roll below. On exhaustion, publishes the last species it tried, whose description is empty and therefore renders exactly as `strict` would. |
 
 Even with `strict`, the footer always carries a Wikipedia link, falling
 back to English Wikipedia (and labeled `Wikipedia (en)`) if the target

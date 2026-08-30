@@ -8,7 +8,7 @@
   "description_policy": "foreign_fallback",
   "_description_policy_help": "How to render descriptions when no source produces text in the configured language. One of: strict | foreign_fallback | skip. Default: foreign_fallback.",
   "max_skip_retries": 50,
-  "_max_skip_retries_help": "Only used by description_policy 'skip': how many times to re-roll the species before giving up. On exhaustion it publishes the last species it tried, whose description is empty and therefore renders exactly as 'strict' would. Set via BOTD_MAX_SKIP_RETRIES.",
+  "_max_skip_retries_help": "How many times the daily selection may re-roll before giving up. Two things send a pick back: a species with no photograph, under every policy, because the plate is the page; and a species with no description in the configured language, only under description_policy 'skip'. On exhaustion it publishes the last species it tried as it is, gap and all, because a day with no entry is worse than a day with a thin one. Set via BOTD_MAX_SKIP_RETRIES.",
 
   "_pools_help": "The daily draw picks one pool, weighted by 'weight' (relative, they need not add up to 1) and seeded from the date. type: 'regional' queries one eBird region code, 'europe_random' picks one country from 'countries' per day and queries that, 'global_taxonomy' draws from the whole eBird world list.",
   "pools": [
