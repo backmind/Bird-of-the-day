@@ -102,20 +102,24 @@ def test_extract_name_pairs_empty():
     assert pairs == {}
 
 
-def test_shortform_links_head_word_verbatim():
-    """The head word of a confirmed species links verbatim when repeated."""
+def test_single_word_never_links():
+    """One word of a confirmed name is not enough to link the species.
+
+    The head word of a localized name is a group noun shared by dozens
+    of species ("Paloma" heads 140), so on its own it identifies a
+    genus at best, never a species.
+    """
     eni = {"Atlantic Puffin": "atlpuf"}
     c2l = {"atlpuf": "Frailecillo Atlantico"}
     result = process_description(
         "El Atlantic Puffin anida aqui. Frailecillo vuela lejos.",
         eni, c2l, {}
     )
-    assert result.count("ebird.org/species/atlpuf") == 2
-    assert ">Frailecillo</a>" in result
-    assert "Frailecillo Atlantico</a>" not in result.split(">Frailecillo</a>")[1]
+    assert result.count("ebird.org/species/atlpuf") == 1
+    assert "Frailecillo vuela lejos" in result
 
 
-def test_shortform_ignores_non_head_words():
+def test_non_head_word_not_linked():
     """A non-head word of the confirmed name is not linked elsewhere."""
     eni = {"Salomon Pigeon": "salpig"}
     c2l = {"salpig": "Paloma Perdiz de las Salomon"}
@@ -128,16 +132,37 @@ def test_shortform_ignores_non_head_words():
     assert result.count("Paloma Perdiz de las Salomon") == 1
 
 
-def test_shortform_is_case_sensitive():
-    """A lowercase occurrence of the head word is not linked."""
-    eni = {"Atlantic Puffin": "atlpuf"}
-    c2l = {"atlpuf": "Frailecillo Atlantico"}
+def test_genus_mention_not_linked():
+    """A genus named as a genus is not a species reference.
+
+    Production case: "perteneciente al genero Aratinga" linked the
+    word to Aratinga Pechisulfurea, one of the 20-odd species that
+    share the head.
+    """
+    c2l = {"subpar1": "Aratinga Pechisulfurea"}
+    anchors = {"subpar1": "birds/subpar1.html"}
     result = process_description(
-        "El Atlantic Puffin anida aqui. Un frailecillo de juguete cayo.",
-        eni, c2l, {}
+        "La Aratinga Pechisulfurea pertenece al genero Aratinga.",
+        {}, c2l, anchors,
     )
-    assert result.count("ebird.org/species/atlpuf") == 1
-    assert "frailecillo de juguete" in result
+    assert result.count("birds/subpar1.html") == 1
+    assert "al genero Aratinga." in result
+
+
+def test_another_species_head_word_not_linked():
+    """A different species sharing the head keeps its own text.
+
+    Production case: "la Aratinga del Sol" linked to Aratinga
+    Pechisulfurea, which is not that bird.
+    """
+    c2l = {"subpar1": "Aratinga Pechisulfurea"}
+    anchors = {"subpar1": "birds/subpar1.html"}
+    result = process_description(
+        "La Aratinga Pechisulfurea formaba parte de la Aratinga del Sol.",
+        {}, c2l, anchors,
+    )
+    assert result.count("birds/subpar1.html") == 1
+    assert "de la Aratinga del Sol" in result
 
 
 def test_english_substitution_fixes_determiner():
@@ -227,7 +252,7 @@ def test_binomial_italicised(monkeypatch):
 
 
 def test_binomial_italicised_when_genus_is_the_localized_head_word(monkeypatch):
-    """The head-word pass must not claim the genus inside a binomial.
+    """A binomial keeps its italics when its genus heads the common name.
 
     Spanish bird names often reuse the genus as their head noun
     (Atlapetes, Curruca, Aratinga). Linking that head word inside the
