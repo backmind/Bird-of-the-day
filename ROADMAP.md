@@ -88,6 +88,23 @@ supported access path, to add a second photo source, or to accept that
 every photograph comes from eBird's curation and retire the republication
 feature.
 
+**A scheduled GitHub run is best effort, and it has stopped being close
+to the hour.** Measured on a running instance in August 2026: a `0 2`
+schedule fired between 02:53 and 03:04 every day for eleven days, then
+12:24, 13:53 and 08:41 on the three days after, and on the fourth it had
+not fired at all five hours in. GitHub queues scheduled workflows and
+drops what it cannot serve, and the top of the hour is the most contended
+minute there is, so both the example and that instance moved to odd
+minutes. That is a mitigation, not a fix: the platform makes no promise
+about when a cron runs, and a daily publication reaching readers at an
+unpredictable hour is a product problem, not a logging one.
+
+The open part is whether to keep publishing from Actions at all. The
+container's own cron is a real schedule on a machine you control, and the
+image already exists and is published; the cost is that you have to run
+something. Anyone who needs the hour to mean something should read the
+schedule in the workflow as a hint and plan for the container.
+
 **Absence and failure are still not the same answer.** Three production
 bugs fixed on 2026-08-30 shared one root: the code read "the source has
 nothing" as "the fetch failed". eBird emits an `og:image` tag even for a
