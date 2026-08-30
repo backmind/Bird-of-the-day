@@ -16,7 +16,7 @@ The catalog file format is a flat dict of dotted keys::
 
     {
       "nav.home": "Today",
-      "footer.author_template": "Non-commercial project by Yass Fuentes © {year}.",
+      "footer.author_template": "Non-commercial project by {name} © {year}.",
       ...
     }
 
@@ -140,7 +140,7 @@ class Catalog:
 
         Supports ``str.format``-style named placeholders via kwargs::
 
-            catalog.t("footer.author_template", year=2026)
+            catalog.t("footer.author_template", year=2026, name="Jane Doe")
 
         If a key is missing in BOTH the active language and the fallback,
         the key itself is returned and a warning is logged. This is a

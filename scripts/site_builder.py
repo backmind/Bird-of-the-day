@@ -37,13 +37,23 @@ class RenderContext:
     every ``_render_*`` helper. Holds the i18n catalog plus the small
     handful of page-level scalars the helpers need.
 
-    ``feed_link`` is carried for absolute-URL generation (canonical links,
-    Open Graph tags) and is deliberately not read by any renderer yet.
+    ``feed_link`` is the absolute base URL used to build the Open Graph
+    ``og:url``/``og:image`` tags in :func:`render_page`. It may be empty
+    (an instance that has not configured one yet), in which case
+    ``render_page`` omits every ``og:`` tag rather than emit a relative
+    ``og:url`` that no client consuming the tag could resolve.
 
     ``full_feed`` says whether ``feed-full.xml`` is actually published.
     It only is when a cap applies (see :func:`feed_builder.write_feeds`),
     so the pages have to be told: advertising a file that was never
     written hands every reader a 404.
+
+    ``site_author`` and ``site_author_url`` name this instance's owner,
+    both optional and empty by default. They are unrelated to the
+    template credit :func:`_render_footer` always emits: that one names
+    who wrote the software and never depends on configuration, this one
+    names who publishes this particular site and appears only when its
+    owner declares it.
     """
 
     catalog: "Catalog"
@@ -53,6 +63,8 @@ class RenderContext:
     published_anchors: dict = field(default_factory=dict)
     path_prefix: str = ""
     full_feed: bool = False
+    site_author: str = ""
+    site_author_url: str = ""
 
     def u(self, path: str) -> str:
         """Resolve a root-relative site path from this page's location."""
@@ -74,6 +86,30 @@ def for_subdirectory(ctx: RenderContext, prefix: str) -> RenderContext:
         for code, target in ctx.published_anchors.items()
     }
     return replace(ctx, path_prefix=prefix, published_anchors=prefixed)
+
+
+def for_absolute_root(ctx: RenderContext) -> RenderContext:
+    """Context for a page with no fixed location: the 404.
+
+    Every other page lives at a known depth, so :meth:`RenderContext.u`
+    can prefix its targets with a relative climb (``""`` at the root,
+    ``"../"`` under ``birds/``). A 404 is served for a URL of any depth,
+    so a root-relative target like ``assets/site.css`` would resolve
+    against whatever directory the missing URL happened to live under,
+    not against the site root.
+
+    With ``ctx.feed_link`` configured, every target is instead prefixed
+    with the absolute base URL (via :func:`urls.absolute`), so it
+    resolves the same regardless of where the 404 is served from.
+    Without one, there is no absolute base to build from, so this falls
+    back to a leading slash: correct only when the site is served from a
+    domain root, which is the deployment this project assumes once no
+    base URL has been configured. A project page served under a subpath
+    has no correct fallback without knowing the base URL, and this
+    function does not pretend otherwise.
+    """
+    prefix = urls.absolute(ctx.feed_link, "") if ctx.feed_link else "/"
+    return replace(ctx, path_prefix=prefix)
 
 
 @dataclass
@@ -189,17 +225,40 @@ def render_subscribe(ctx: RenderContext) -> str:
 
 
 def _render_footer(ctx: RenderContext) -> str:
+    """Two different credits, never confused with each other.
+
+    ``footer.template_credit_html`` names the template's own author and
+    links its repository. It is entirely catalog-owned HTML, fixed per
+    language, and always emitted: no clone can turn it off.
+
+    The instance's own author line is built here, not in the catalog,
+    because it has to escape untrusted config values: ``site_author``
+    goes through ``_esc`` before it ever reaches ``t()``, and
+    ``site_author_url`` is only ever used inside an ``href`` attribute
+    after the same escaping, so neither can break out of the markup.
+    Emitted only when ``site_author`` is configured, and in its own
+    ``<p>``, separate from the template credit's: the two authorships
+    must stay distinguishable structurally, not just by where a sentence
+    happens to break, since the template credit is what has to survive
+    any clone unchanged.
+    """
     t = ctx.catalog.t
     year = datetime.now(timezone.utc).year
-    # Author is hardcoded in the per-language template, which may contain
-    # raw HTML for the embedded link — passed through verbatim.
-    author_line = t("footer.author_template", year=year)
-    code_link = t("footer.code_link_html")
+    author_paragraph = ""
+    if ctx.site_author:
+        name_html = _esc(ctx.site_author)
+        if ctx.site_author_url:
+            name_html = (
+                f'<a href="{_esc(ctx.site_author_url)}" target="_blank" '
+                f'rel="noopener">{name_html}</a>'
+            )
+        author_line = t("footer.author_template", year=year, name=name_html)
+        author_paragraph = f"  <p>{author_line}</p>\n"
     return f"""
 <footer class="site">
   <p>{t("footer.data_credit_html")}</p>
   <p>{t("footer.photos_credit_html")}</p>
-  <p>{author_line} {code_link}</p>
+{author_paragraph}  <p>{t("footer.template_credit_html")}</p>
 </footer>
 """.strip()
 
@@ -559,16 +618,79 @@ _THEME_BOOT_SCRIPT = (
 )
 
 
+@dataclass(frozen=True)
+class OpenGraph:
+    """Open Graph data for one page, consumed by :func:`render_page`.
+
+    ``path`` is the page's own canonical path, root-relative from the
+    site root (e.g. ``urls.species_filename(code)``). It is deliberately
+    never passed through :meth:`RenderContext.u`: that prefix is for
+    in-page navigation from wherever the current page happens to live,
+    while ``og:url`` must resolve the same regardless of which page
+    links to it, so it is joined onto ``ctx.feed_link`` directly.
+
+    The same ``path`` is what :func:`render_page` emits as
+    ``<link rel="canonical">``, which is the literal meaning the name
+    already claimed. Keeping both off one field is what stops them
+    disagreeing: a page whose canonical said one thing and whose
+    ``og:url`` said another would be telling a crawler and a chat client
+    two different stories about which URL it really is.
+
+    ``image`` is used as-is. Every photo the site publishes is already
+    an absolute URL (hot-linked from Macaulay Library), so there is
+    nothing to prefix. Leave it empty when the page has no photo:
+    :func:`render_page` omits the tag entirely rather than emit
+    ``og:image`` with empty content.
+    """
+
+    title: str
+    path: str
+    type: str = "website"
+    image: str = ""
+
+
 def render_page(
-    title: str, body: str, ctx: RenderContext, active: str, head_extra: str = ""
+    title: str,
+    body: str,
+    ctx: RenderContext,
+    active: str,
+    head_extra: str = "",
+    description: str = "",
+    og: OpenGraph | None = None,
 ) -> str:
     """Render a full page.
 
-    ``head_extra`` is raw markup appended to ``<head>``, for the rare
-    thing that has to run before first paint rather than in document
-    order; it is emitted right after the theme-boot script, which is
-    there for the same reason. Empty by default, and it contributes no
-    whitespace when empty so a page without it keeps its exact bytes.
+    ``head_extra`` is raw markup appended to ``<head>``: the rare thing
+    that has to run before first paint rather than in document order (the
+    archive front's legacy-anchor shim), or a directive that only belongs
+    to one page class (the 404's ``robots`` meta). It is emitted right
+    after the theme-boot script, which is there for the first reason.
+    Empty by default, and it contributes no whitespace when empty so a
+    page without it keeps its exact bytes.
+
+    ``description`` is this page's own ``<meta name="description">``.
+    Empty by default, in which case the tag is omitted rather than
+    falling back to a shared tagline: a home page, an archive front, a
+    month bucket and a species page are different documents and should
+    never describe themselves identically.
+
+    ``og`` supplies Open Graph data (see :class:`OpenGraph`). The whole
+    block is emitted only when ``og`` is given *and* ``ctx.feed_link``
+    is configured: a relative ``og:url`` is worse than none, since no
+    client consuming the tag could resolve it, so the block is omitted
+    entirely rather than degraded. ``og:description`` mirrors
+    ``description`` and ``og:image`` is omitted when ``og.image`` is
+    empty, for the reason given on :class:`OpenGraph`.
+
+    ``<link rel="canonical">`` is emitted under exactly the same
+    condition and from the same ``og.path``, because it has the same
+    problem: a relative canonical is not resolvable by the crawler
+    reading it, and a wrong one is worse than none at all. It is what
+    settles the home page's two addresses, the bare base URL and
+    ``index.html``, in favour of the one ``sitemap.xml`` and ``og:url``
+    already name. The 404 passes no ``og`` and so gets no canonical,
+    which is correct: it is served for every URL that does not exist,
+    and it carries ``noindex`` instead.
 
     The second ``rel="alternate"`` is emitted only when the full-history
     feed is actually published, for the reason given on
@@ -577,6 +699,11 @@ def render_page(
     t = ctx.catalog.t
     stylesheet_href = _esc(ctx.u(urls.STYLESHEET))
     head_block = f"\n  {head_extra}" if head_extra else ""
+    description_meta = (
+        f'\n  <meta name="description" content="{_esc(description)}">'
+        if description
+        else ""
+    )
     full_feed_link = ""
     if ctx.full_feed:
         full_feed_link = (
@@ -584,17 +711,38 @@ def render_page(
             f'{_esc(t("feed.full_title_template", title=t("site.title")))}" '
             f'href="{_esc(ctx.u(urls.FEED_FULL_FILE))}">'
         )
+    canonical_link = ""
+    if og is not None and ctx.feed_link:
+        canonical_link = (
+            '\n  <link rel="canonical" href="'
+            f'{_esc(urls.absolute(ctx.feed_link, og.path))}">'
+        )
+    og_meta = ""
+    if og is not None and ctx.feed_link:
+        og_tags = [
+            f'<meta property="og:title" content="{_esc(og.title)}">',
+            f'<meta property="og:type" content="{_esc(og.type)}">',
+            f'<meta property="og:url" content="'
+            f'{_esc(urls.absolute(ctx.feed_link, og.path))}">',
+        ]
+        if description:
+            og_tags.append(
+                f'<meta property="og:description" content="{_esc(description)}">'
+            )
+        if og.image:
+            og_tags.append(f'<meta property="og:image" content="{_esc(og.image)}">')
+        og_meta = "\n  " + "\n  ".join(og_tags)
     return f"""<!DOCTYPE html>
 <html lang="{_esc(ctx.catalog.html_lang)}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{_esc(title)}</title>
-  <meta name="description" content="{_esc(t("site.tagline"))}">
+  <title>{_esc(title)}</title>{description_meta}
   <meta name="theme-color" content="#F4EEE0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0F1518" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="{_FAVICON_SVG}">
-  <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="{_esc(ctx.u(urls.FEED_FILE))}">{full_feed_link}
+  <link rel="preload" as="font" type="font/woff2" href="{_esc(ctx.u(urls.FONT_PRELOAD))}" crossorigin>{canonical_link}
+  <link rel="alternate" type="application/rss+xml" title="{_esc(t("site.title"))}" href="{_esc(ctx.u(urls.FEED_FILE))}">{full_feed_link}{og_meta}
   {_THEME_BOOT_SCRIPT}{head_block}
   <link rel="stylesheet" href="{stylesheet_href}">
 </head>
@@ -615,7 +763,14 @@ def build_index(
     t = ctx.catalog.t
     if not entries:
         body = f'<p>{_esc(t("index.empty"))}</p>\n' + render_subscribe(ctx)
-        return render_page(t("site.title"), body, ctx, active="home")
+        # No bird to name yet, so the empty notice doubles as this page's
+        # description instead of a fixed tagline; it is already distinct
+        # and true, unlike sharing "site.tagline" with every other page.
+        og = OpenGraph(title=t("site.title"), path=urls.INDEX_PAGE)
+        return render_page(
+            t("site.title"), body, ctx, active="home",
+            description=t("index.empty"), og=og,
+        )
 
     hero = entries[0]
     grid_entries = entries[1 : 1 + INDEX_GRID_SIZE]
@@ -635,4 +790,14 @@ def build_index(
     page_title = t(
         "page.home_hero_title_template", name=hero.common_name
     )
-    return render_page(page_title, body, ctx, active="home")
+    description = t("page.home_description_template", name=hero.common_name)
+    # The hero is the most recent bird, so its photo is also the site's
+    # most recent, which is what the home page's og:image represents.
+    og = OpenGraph(
+        title=page_title,
+        path=urls.INDEX_PAGE,
+        image=hero.image_url or "",
+    )
+    return render_page(
+        page_title, body, ctx, active="home", description=description, og=og
+    )

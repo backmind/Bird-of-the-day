@@ -1,7 +1,6 @@
 {
   "site.title": "Bird of the Day",
   "site.eyebrow": "Field journal · daily",
-  "site.tagline": "A new bird species every day.",
   "site.skip_to_content": "Skip to content",
 
   "nav.principal_aria": "Primary",
@@ -43,16 +42,23 @@
   "iucn.NE": "Not Evaluated",
   "archive.empty": "The archive is empty.",
   "index.empty": "No birds have been published yet. Come back tomorrow.",
+  "notfound.title": "Page not found",
+  "notfound.message": "The page you were looking for does not exist, or it may have moved.",
 
   "footer.data_credit_html": "Data from <a href=\"https://ebird.org\" target=\"_blank\" rel=\"noopener\">eBird</a> and <a href=\"https://www.birds.cornell.edu/\" target=\"_blank\" rel=\"noopener\">Cornell Lab of Ornithology</a>.",
   "footer.photos_credit_html": "Photos from <a href=\"https://www.macaulaylibrary.org/\" target=\"_blank\" rel=\"noopener\">Macaulay Library</a>, © their respective authors.",
-  "footer.author_template": "Non-commercial project by <a href=\"https://yassfuentes.es\" target=\"_blank\" rel=\"noopener\">Yass Fuentes</a> © {year}.",
-  "footer.code_link_html": "<a href=\"https://github.com/backmind/Bird-of-the-day\" target=\"_blank\" rel=\"noopener\">Clone me on GitHub</a>.",
+  "footer.author_template": "Non-commercial project by {name} © {year}.",
+  "footer.template_credit_html": "Bird of the Day, a template by <a href=\"https://github.com/backmind/Bird-of-the-day\" target=\"_blank\" rel=\"noopener\">Yass Fuentes</a>, on GitHub.",
 
   "page.home_hero_title_template": "{name} — Bird of the Day",
   "page.archive_title_template": "Archive — Bird of the Day",
   "page.bucket_title_template": "{month} · Archive · Bird of the Day",
   "page.species_title_template": "{name} · Species page · Bird of the Day",
+  "page.not_found_title_template": "Page not found · Bird of the Day",
+  "page.home_description_template": "Today's featured bird: {name}.",
+  "page.archive_description_template": "Browse the full archive: {count} birds published so far.",
+  "page.bucket_description_template": "Birds published in {month}.",
+  "page.species_description_template": "{name}, featured on Bird of the Day: photos, identification notes and range map.",
 
   "description.foreign_disclaimer": "Description in {source_language} (no English translation available).",
   "description.empty_marker": "—",
@@ -68,7 +74,7 @@
   "feed.full_title_template": "{title} (full archive)",
   "feed.description": "A new bird species every day.",
   "feed.copyright_data_prefix": "Data: eBird/Cornell Lab of Ornithology (ebird.org). Photos: Macaulay Library, © their respective authors. ",
-  "feed.copyright_author_template": "Feed © {year} Yass Fuentes, non-commercial project.",
+  "feed.copyright_author_template": "Feed © {year} {name}non-commercial project.",
 
   "month.1": "January",
   "month.2": "February",

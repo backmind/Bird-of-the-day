@@ -25,6 +25,11 @@ services:
       # BOTD_LANGUAGE: en
       # BOTD_DESCRIPTION_POLICY: foreign_fallback
       # BOTD_FEED_LINK: https://example.com/birds/
+      # Your own name and link. Left unset, neither the footer nor the
+      # feed's copyright line attributes the content to anyone, which is
+      # the right default for a clone that has not claimed it yet.
+      # BOTD_SITE_AUTHOR: Jane Doe
+      # BOTD_SITE_AUTHOR_URL: https://example.com
       # BOTD_LLM_API_KEY: ${BOTD_LLM_API_KEY:-}
     volumes:
       - botd-data:/var/lib/botd

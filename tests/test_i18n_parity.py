@@ -54,3 +54,22 @@ def test_templates_keep_their_placeholders():
         # channel title (and the page's second <link> title) to a bare
         # qualifier with the suite still green.
         assert "{title}" in catalog["feed.full_title_template"]
+
+
+def test_description_templates_keep_their_placeholders():
+    """The four per-page descriptions, pinned for the same reason.
+
+    These carry the whole point of giving each page class its own
+    description: name today's bird, count the archive, name the month,
+    name the species. A translation that dropped its placeholder would
+    leave that language with four descriptions that no longer say
+    anything specific, and because ``Catalog.t`` discards a kwarg it
+    finds no slot for, it would do it without raising and without
+    turning the suite red.
+    """
+    for lang in discover_languages():
+        catalog = _load(lang)
+        assert "{name}" in catalog["page.home_description_template"]
+        assert "{count}" in catalog["page.archive_description_template"]
+        assert "{month}" in catalog["page.bucket_description_template"]
+        assert "{name}" in catalog["page.species_description_template"]

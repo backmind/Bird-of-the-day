@@ -1,6 +1,6 @@
 {
   "language": "en",
-  "_language_help": "One of the languages with a catalog at data/i18n/{lang}.json. Default: es.",
+  "_language_help": "One of the languages with a catalog at data/i18n/{lang}.json. This example ships 'en'; delete the key entirely and the loader falls back to 'es'. Set via BOTD_LANGUAGE.",
 
   "ebird_locale": null,
   "_ebird_locale_help": "Optional override for the eBird API locale (e.g. 'pt_BR'). If null, derived from `language`.",
@@ -8,7 +8,9 @@
   "description_policy": "foreign_fallback",
   "_description_policy_help": "How to render descriptions when no source produces text in the configured language. One of: strict | foreign_fallback | skip. Default: foreign_fallback.",
   "max_skip_retries": 50,
+  "_max_skip_retries_help": "Only used by description_policy 'skip': how many times to re-roll the species before giving up. On exhaustion it publishes the last species it tried, whose description is empty and therefore renders exactly as 'strict' would. Set via BOTD_MAX_SKIP_RETRIES.",
 
+  "_pools_help": "The daily draw picks one pool, weighted by 'weight' (relative, they need not add up to 1) and seeded from the date. type: 'regional' queries one eBird region code, 'europe_random' picks one country from 'countries' per day and queries that, 'global_taxonomy' draws from the whole eBird world list.",
   "pools": [
     {
       "id": "local",
@@ -35,6 +37,7 @@
     }
   ],
   "dedup_window": 50,
+  "_dedup_window_help": "Floor of the dedup window, in entries. The window in force is this or half the publication history, whichever is larger, and it is then clamped so it never blocks more than 75% of what the pool offers today. Set via BOTD_DEDUP_WINDOW.",
   "rarity_bias": 0.5,
   "_rarity_bias_help": "Strength of the bias towards rarer species in the daily draw. 0 = uniform (no bias), 0.5 = default soft bias, 1 = strong inverse-count bias, negative = favours the most abundant species. Set via BOTD_RARITY_BIAS.",
   "max_feed_entries": 30,
@@ -42,11 +45,17 @@
   "feed_rebuild_all": false,
   "_feed_rebuild_all_help": "Re-render every item body in feed-full.xml instead of reusing the published ones. Normally false: the full feed is append-only so its daily diff stays small. Set via BOTD_FEED_REBUILD_ALL.",
   "back_days": 14,
+  "_back_days_help": "How many days back the regional pools ask eBird for observations. A longer window offers more species and loosens the dedup clamp; a shorter one keeps the picks seasonal. Ignored by global_taxonomy pools. Set via BOTD_BACK_DAYS.",
   "backfill_limit": 3,
   "_backfill_limit_help": "Max healing actions (missed enrichments, failed GBIF lookups) retried per run. 0 disables self-healing.",
 
   "feed_link": "",
-  "_feed_link_help": "Base URL of your deployed site (e.g. 'https://birds.example.com/'). Used for absolute URLs in the RSS feed.",
+  "_feed_link_help": "Base URL of your deployed site (e.g. 'https://birds.example.com/'). Every absolute URL is built from it: the feed's item links and self-link, the Open Graph tags, the Sitemap line in robots.txt and the links on 404.html. Left empty, sitemap.xml is not written and the Open Graph block is omitted rather than emitted with URLs no reader could resolve. Set via BOTD_FEED_LINK.",
+
+  "site_author": "",
+  "_site_author_help": "Your name, shown in the footer and in the feed's copyright line. Empty by default: without it, only the template's own credit appears. Set via BOTD_SITE_AUTHOR for Docker.",
+  "site_author_url": "",
+  "_site_author_url_help": "Optional link for site_author in the footer (e.g. your own site). Ignored when site_author is empty. Set via BOTD_SITE_AUTHOR_URL for Docker.",
 
   "llm": {
     "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -54,5 +63,5 @@
     "temperature": 0.6,
     "judge": false
   },
-  "_llm_help": "OpenAI-compatible chat completions endpoint. 'models' are tried in order until one succeeds; pin concrete model names, not -latest aliases. API key via BOTD_LLM_API_KEY env var. 'judge' enables an optional second-pass fact-check."
+  "_llm_help": "OpenAI-compatible chat completions endpoint. 'models' are tried in order until one succeeds; pin concrete model names, not -latest aliases. API key via BOTD_LLM_API_KEY env var. 'judge' enables an optional second-pass fact-check. 'max_retries' (default 3) is the retries per model before moving to the next one in the chain. Enrichment runs whenever endpoint, models and the API key are all present; there is no on/off flag."
 }

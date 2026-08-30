@@ -294,9 +294,20 @@ def build_feed(
         atom_link.set("rel", "self")
         atom_link.set("type", "application/rss+xml")
 
-    # Copyright. Author is hardcoded in the per-language template.
+    # Copyright. The name comes from config, never from the template: a
+    # clone with no site_author configured gets a copyright line naming
+    # no one, not the original instance's owner. ``name_part`` folds in
+    # its own trailing ", " so the template reduces to a clean sentence
+    # with nothing missing when site_author is empty (no stray comma).
+    # The value goes straight into an ElementTree ``.text``, which is
+    # XML-escaped on serialization, so it is passed through unescaped
+    # here on purpose.
     year = datetime.now(timezone.utc).year
-    author_line = catalog.t("feed.copyright_author_template", year=year)
+    site_author = config.get("site_author", "")
+    name_part = f"{site_author}, " if site_author else ""
+    author_line = catalog.t(
+        "feed.copyright_author_template", year=year, name=name_part
+    )
     ET.SubElement(channel, "copyright").text = (
         catalog.t("feed.copyright_data_prefix") + author_line
     )

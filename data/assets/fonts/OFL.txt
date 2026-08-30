@@ -1,0 +1,11 @@
+Self-hosted webfonts used by this site.
+
+Fraunces, version 38 as served by Google Fonts.
+Source Serif 4, version 14 as served by Google Fonts.
+
+Both families are licensed under the SIL Open Font License, version 1.1.
+Full license text: https://openfontlicense.org/
+
+Subsetting: each family was downloaded already split by unicode-range
+(latin and latin-ext) from Google Fonts' own CSS API, then saved here as
+static assets. No glyphs were added, removed or otherwise modified.

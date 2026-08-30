@@ -1,0 +1,49 @@
+name: Quality
+
+# Runs the test suite on every pull request, and on a push that touches
+# code, tests or dependencies. No linter and no type checker: neither is
+# configured in this repository, and adding one here would open a style
+# conversation this workflow is not meant to start.
+
+on:
+  push:
+    # A production instance's own daily workflow commits straight to its
+    # default branch (see .github/bird-of-the-day.yml.example), touching
+    # only the site's generated output: HTML pages, the feed, history.json,
+    # the cache and the composed maps. None of that changes what the test
+    # suite verifies, so it is left out of this list on purpose (the same
+    # reasoning docker-publish.yml already applies to its own path filter,
+    # so as not to burn CI minutes on every one of those commits).
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'data/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.python-version'
+      - '.github/workflows/quality.yml'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        # No python-version pinned here: uv itself reads the
+        # .python-version file at the repository root and installs that
+        # exact interpreter for every `uv` command below, so the version
+        # has a single source of truth instead of being duplicated (and
+        # risking drift) in this workflow.
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest -q

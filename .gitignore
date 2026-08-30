@@ -22,7 +22,10 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Instance data (generated at runtime, not tracked in the template)
+# Instance data (generated at runtime, not tracked in the template).
+# A published instance commits all of this; the workflow uses "git add -f"
+# so being listed here does not stop it. What it stops is a "git add -A"
+# in the template quietly committing one machine's generated site.
 data/config.json
 CNAME
 history.json
@@ -30,10 +33,21 @@ feed.xml
 feed-full.xml
 index.html
 archive.html
+archive-*.html
+sitemap.xml
+robots.txt
+404.html
+birds/
 cache/*
 !cache/.gitkeep
 maps/*
 !maps/.gitkeep
+# The published copy of the assets, written by write_site. The leading
+# slash is load-bearing: it anchors this to the repository root, so it
+# cannot also swallow data/assets/, which is the committed *source* for
+# the basemap and the webfonts. Without the slash git would match a
+# directory named "assets" at any depth, that source tree included.
+/assets/
 
 # Agent scratch (worktrees and plan ledgers, never published)
 .worktrees/

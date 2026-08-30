@@ -30,12 +30,16 @@ repository root:
 
 | Route | What it is |
 |---|---|
-| `/` (`index.html`) | Hero of the day's bird + a grid of the most recent twelve |
+| `/` (`index.html`) | Hero of the day's bird + a grid of the twelve published before it |
 | `/archive.html` | Archive front: the current month as cards, plus a directory of every month |
 | `/archive-YYYY-MM.html` | Every plate published that month, with permanent anchors (`#bird-{code}-{date}`) |
 | `/birds/{code}.html` | Canonical page for a species, with its publication history |
 | `/feed.xml` | RSS 2.0 feed with rich `content:encoded` HTML |
 | `/feed-full.xml` | The same feed with the complete history, when a cap is set |
+| `/sitemap.xml` | The four HTML page classes above with a `lastmod` each. Written only when `feed_link` is set |
+| `/robots.txt` | Allows everything, and names the sitemap when there is one |
+| `/404.html` | Error page with the site's own chrome. GitHub Pages serves it natively |
+| `/assets/` | `site.css`, the webfonts under `fonts/`, and `basemap.png` |
 
 `feed.xml` carries the most recent `max_feed_entries` items and is
 fully re-rendered every run; `feed-full.xml` carries everything and
@@ -48,12 +52,12 @@ would be a byte-for-byte duplicate. The pages follow the same rule and
 only link `feed-full.xml` when it is published, so no page ever
 advertises a file that is not there.
 
-An instance that is already running keeps its own `data/config.json`,
-which is gitignored and therefore never updated by a `git pull`, so
-setting the cap on an existing deployment is a manual edit (or a
-`BOTD_MAX_FEED_ENTRIES` on the container). Until `max_feed_entries` is
-set there, nothing changes: `feed.xml` stays uncapped, no `feed-full.xml`
-is written, and the pages link no second feed.
+`data/config.json` is gitignored, so a `git pull` never touches the copy
+a running deployment made: changing the cap on a live instance is a hand
+edit of that file (or a `BOTD_MAX_FEED_ENTRIES` on the container), not
+something an upgrade does for you. The bundled example ships
+`max_feed_entries: 30`, so a fresh clone publishes both files from its
+first run.
 
 Item bodies outside the cap window are reused exactly as published, so
 `feed-full.xml` grows by one item a day. An entry the backfill repairs is
@@ -63,11 +67,20 @@ the frozen part of the history when you ask for it with
 `BOTD_FEED_REBUILD_ALL=1` (or `"feed_rebuild_all": true` in the config),
 which re-renders every item once and then goes back to reusing them.
 
-Everything is server-rendered HTML — no JavaScript framework, no build
-step. Two small pieces of vanilla JS are inlined: a theme switcher that
-persists light/dark preference in `localStorage`, and, on `archive.html`
-only, a redirect for legacy anchors (see [Archive and
-permalinks](#archive-and-permalinks) below).
+Everything is server-rendered HTML: no JavaScript framework, no build
+step, no asset pipeline. Three small fragments of vanilla JS are inlined,
+and there is no other script anywhere: a boot snippet in `<head>` that
+applies the stored theme before first paint, the theme toggle's own
+`onclick`, and, on `archive.html` only, a redirect for legacy anchors
+(see [Archive and permalinks](#archive-and-permalinks) below). The first
+two are one feature seen from two places: the light/dark preference,
+persisted in `localStorage`.
+
+The two webfonts (Fraunces and Source Serif 4, both OFL 1.1) are
+committed to the repository under `data/assets/fonts/` and published to
+`assets/fonts/` on every build, so rendering a page makes no request to
+any font CDN. The only requests that leave the site are the Macaulay
+Library photo CDN and the GBIF occurrence-density tile.
 
 ### Archive and permalinks
 
@@ -102,12 +115,16 @@ older month bucket.
 ```
 GitHub Actions (cron daily 07:00 UTC)
   │
-  ├─ 1. Pool weighted by date (e.g. 35% Madrid, 27% Spain,
-  │     23% one random European country, 15% global taxonomy)
-  ├─ 2. Species selection biased toward rarer observations,
-  │     deduplicated against the last 50 publications
-  ├─ 3. Photo + photographer from Macaulay Library Search API
-  │     (with fallback to og:image on the eBird species page)
+  ├─ 1. Pool weighted by date (in the shipped example: 35% a state,
+  │     27% a country, 23% one random country from a list,
+  │     15% the global taxonomy)
+  ├─ 2. Species selection biased toward rarer observations, minus a
+  │     dedup window that grows with the archive and is clamped to
+  │     what the pool can supply today
+  ├─ 3. Photo + photographer: eBird's curated og:image hero first,
+  │     Macaulay Library Search API as fallback. A republication
+  │     skips the hero and walks the Macaulay list for an unused
+  │     photo, falling back to the normal order if it finds none
   ├─ 4. Description chain in the configured language:
   │     eBird Merlin → Wikipedia → policy-driven fallback
   ├─ 4b. LLM enrichment (when an LLM endpoint is configured):
@@ -116,10 +133,13 @@ GitHub Actions (cron daily 07:00 UTC)
   ├─ 5. Wikipedia URL captured (target language → English fallback)
   │     so the footer link is always present
   ├─ 6. GBIF distribution map composed (committed basemap +
-  │     density overlay)
-  ├─ 7. feed.xml + index.html + archive.html + one page per month +
-  │     one page per species + assets/site.css written; only the
-  │     ones whose content changed are rewritten
+  │     density overlay) and the IUCN Red List category read off
+  │     the same taxon match
+  ├─ 7. Site written: index.html, archive.html, one page per month,
+  │     one page per species, 404.html, robots.txt, sitemap.xml,
+  │     assets/site.css, assets/fonts/, assets/basemap.png; then
+  │     feed.xml and feed-full.xml. Everything but the two copied
+  │     binary assets is only rewritten when its bytes change
   └─ 8. git commit + git push → GitHub Pages republishes
 ```
 
@@ -132,12 +152,55 @@ of them heal. This makes the daily cron and ad-hoc reruns self-healing
 instead of duplicating work. See [Backfill and
 self-healing](#backfill-and-self-healing) below.
 
+### Selection, dedup and repeats
+
+One pool is drawn per day, weighted by `weight` and seeded from the date.
+A regional pool asks eBird for the species seen in its region over the
+last `back_days` days, up to 1000 species; the `global_taxonomy` pool
+uses the whole eBird world list instead.
+
+Within the pool, each candidate is weighted by `1 / count ** rarity_bias`,
+where `count` is the number of individuals eBird reports for it over that
+window. A species seen once is therefore likelier than one seen a hundred
+times. `rarity_bias` is a knob, not a rule: `0` makes the draw uniform,
+`0.5` (the default) is a soft nudge, `1` is a plain inverse count, and a
+negative value favours the most abundant species instead. The world list
+carries no counts, so every species in it weighs the same.
+
+Duplicates are held off by a dedup window that **grows with the archive**:
+it is `dedup_window` entries at minimum and half the publication history
+once that is larger. The window is then clamped so it can never block
+more than three quarters of what the pool offers today, which keeps at
+least a quarter of the pool eligible however long the archive gets. The
+run report says so out loud when the clamp binds, so you see the pool
+tightening before it starts repeating. If a pool answers with nothing at
+all (a network error, a region with no recent observations), there is one
+rescue attempt against the global taxonomy.
+
+When a species does come back, it is normally not a carbon copy of the
+first time. The rated Macaulay list is walked past every asset that
+species has already been published with, so a repeat usually arrives with
+a photo you have not seen. It is a preference, not a guarantee: when the
+library offers nothing new, the ordinary lookup runs anyway and the photo
+can repeat, on the principle that a familiar photograph beats no
+photograph.
+
+The entry also carries a chip naming its previous publication date. It
+appears wherever that entry is rendered: the home hero, its month-bucket
+plate, its grid card, and its RSS item. The species' own page is the one
+place that leaves it out, since that page already lists every date the
+species has been published.
+
 ## Stack
 
 - Python 3.12+, managed with [`uv`](https://github.com/astral-sh/uv)
 - Four runtime dependencies: `requests`, `beautifulsoup4`, `langid`, `Pillow`
-- No database. State lives in a few paths in the repo: `feed.xml`,
-  `history.json`, `cache/`, `maps/`
+- One dev dependency: `pytest`
+- No database. State lives in a few paths next to the code: `history.json`
+  is the record of what was published, `cache/` holds the per-species
+  scrapes and the taxonomy, `maps/` the composed map PNGs. Everything
+  else (the pages, the feeds, `assets/`, `birds/`) is regenerated from
+  those on every run
 
 ## Local installation
 
@@ -179,23 +242,21 @@ Copy the bundled example and edit it:
 cp data/config.example.json data/config.json
 ```
 
-Every behavior knob lives here. Annotated example:
+Every behavior knob lives here. This is what the bundled example ships,
+with its `_*_help` keys elided for brevity (the file itself annotates
+every one of them in place):
 
 ```json
 {
-  "language": "es",
-  "_language_help": "One of es | en | fr | pt (or any other catalog you add).",
-
+  "language": "en",
   "ebird_locale": null,
-  "_ebird_locale_help": "Optional override for the eBird API locale (e.g. 'pt_BR'). If null, derived from `language`.",
 
   "description_policy": "foreign_fallback",
-  "_description_policy_help": "How to render descriptions when no source produces text in the configured language. One of: strict | foreign_fallback | skip.",
   "max_skip_retries": 50,
 
   "pools": [
-    {"id": "madrid", "region": "ES-MD", "weight": 0.35, "type": "regional"},
-    {"id": "spain",  "region": "ES",    "weight": 0.27, "type": "regional"},
+    {"id": "local",   "region": "US-NY", "weight": 0.35, "type": "regional"},
+    {"id": "country", "region": "US",    "weight": 0.27, "type": "regional"},
     {"id": "europe", "weight": 0.23, "type": "europe_random",
      "countries": ["PT", "FR", "IT", "DE", "GB", "GR", "SE", "NO", "PL"]},
     {"id": "global", "weight": 0.15, "type": "global_taxonomy"}
@@ -207,7 +268,10 @@ Every behavior knob lives here. Annotated example:
   "back_days": 14,
   "backfill_limit": 3,
 
-  "feed_link": "https://YOUR-USERNAME.github.io/Bird-of-the-day/",
+  "feed_link": "",
+
+  "site_author": "",
+  "site_author_url": "",
 
   "llm": {
     "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -219,6 +283,41 @@ Every behavior knob lives here. Annotated example:
 ```
 
 Keys starting with `_` are documentation-only and ignored at load time.
+
+Two of these are worth setting before your first run. `feed_link` is the
+absolute base URL of your deployed site: without it there is no absolute
+URL to build, so the feed items fall back to eBird, the Open Graph tags
+are omitted entirely rather than emitted unresolvable, and no
+`sitemap.xml` is written. `site_author` is your name; see
+[Authorship](#authorship) below for what it does and what happens when
+you leave it empty.
+
+### Authorship
+
+The footer carries two credits, and they are deliberately separate.
+
+The **template credit** names whoever wrote this software and links its
+repository. It is fixed, it comes from the i18n catalog, it appears on
+every page, and there is no configuration knob that turns it off.
+
+The **instance author** is you. Set `site_author` (and, optionally,
+`site_author_url` to link it) and your name appears in its own footer
+paragraph and in the RSS channel's `<copyright>`. Leave it empty and
+neither the site nor the feed attributes the content to anyone. That is
+the correct behavior for a fresh clone: a site that has published nothing
+of its own yet should not claim an author, and it must never inherit the
+name of whoever's instance you cloned from.
+
+Upgrading an existing instance: these two keys are new, and
+`data/config.json` is gitignored, so merging this version does not add
+them to the copy your deployment already has. That matters more than a
+missing knob usually would, because the footer's author line used to be
+unconditional, with the name baked into the i18n catalog. It is now
+conditional on `site_author`. Until you add the key by hand (or set
+`BOTD_SITE_AUTHOR` on the container), your footer and your feed's
+`<copyright>` carry only the template credit, and your name quietly stops
+appearing on a site that used to show it. Two lines in
+`data/config.json`, and it is back.
 
 ### LLM enrichment
 
@@ -257,17 +356,33 @@ Wikipedia) returns text in your configured language:
 |---|---|
 | `foreign_fallback` (default) | Show the original text with a disclaimer naming the source language (e.g. *"Description in English (no French translation available)"*). |
 | `strict` | Show an em-dash placeholder. Never display foreign text. |
-| `skip` | Re-roll species selection up to `max_skip_retries` times. On exhaustion, falls back to `strict`. |
+| `skip` | Re-roll species selection up to `max_skip_retries` times. On exhaustion, publishes the last species it tried, whose description is empty and therefore renders exactly as `strict` would. |
 
 Even with `strict`, the footer always carries a Wikipedia link — falling
 back to English Wikipedia (and labeled `Wikipedia (en)`) if the target
 language has no article.
 
-The `site.tagline` and `feed.description` strings in `data/i18n/*.json`
-are intentionally generic ("A new bird species every day."): the regional
-flavor of the site is decided by `pools` in `data/config.json`, not baked
-into the copy. If you want a region-specific tagline, edit the catalog of
-the language you're shipping in.
+### Page metadata and social cards
+
+Each of the four page classes writes its own `<meta name="description">`
+from a catalog template: the home page names today's bird, the archive
+front counts the birds published so far, a month bucket names its month,
+a species page names its species. There is no shared site-wide tagline
+for them to fall back on, on purpose: four different documents should
+never describe themselves identically.
+
+The same four classes emit Open Graph tags (`og:title`, `og:type`,
+`og:url`, `og:description`, and `og:image` when the page has a photo),
+which is what a link to the site unfurls into on a chat client or a
+social network. The whole block is emitted only when `feed_link` is
+configured, since a relative `og:url` is worse than none: no client
+consuming the tag could resolve it.
+
+The `feed.description` string in `data/i18n/*.json` is the RSS channel's
+own description, and it is intentionally generic ("A new bird species
+every day."): the regional flavor of the site is decided by `pools` in
+`data/config.json`, not baked into the copy. If you want a
+region-specific one, edit the catalog of the language you're shipping in.
 
 ## Running
 
@@ -279,14 +394,34 @@ uv run python -m scripts.generate
 
 This:
 
-1. Loads `.env` if present.
-2. Loads the i18n catalog for the configured language.
-3. Bails early if today's entry is already in `history.json`.
-4. Selects the species, fetches image and content (writing to `cache/`).
-5. Writes `feed.xml`, `index.html`, `archive.html`, one page per month
-   bucket, one page per species and `assets/site.css`; only the files
-   whose content changed are rewritten.
-6. Updates `history.json`.
+1. Loads `.env` if present, then any secret pointed at by a `*_FILE`
+   variable.
+2. Loads the config and the i18n catalog for the configured language.
+3. Runs maintenance first, before anything else: up to `backfill_limit`
+   past entries with a missed enrichment or a failed GBIF lookup are
+   retried.
+4. If today's entry is already in `history.json`, re-renders the whole
+   site and both feeds and stops. Nothing on disk actually changes unless
+   the backfill above healed something. This rebuild is skipped, with a
+   warning, when maintenance or the taxonomy fetch failed: republishing
+   every page with an empty cross-link catalog would overwrite good
+   output with degraded output.
+5. Otherwise selects the species and fetches image and content, writing
+   to `cache/`.
+6. Appends the entry to `history.json`.
+7. Writes the site: `index.html`, `archive.html`, one page per month
+   bucket, one page per species, `404.html`, `robots.txt`, `sitemap.xml`
+   (only when `feed_link` is set), `assets/site.css`, `assets/fonts/`
+   and `assets/basemap.png`.
+8. Writes `feed.xml` and, when a cap is set, `feed-full.xml`.
+
+Every one of those files goes through a content-addressed writer, so only
+the ones whose bytes actually changed are rewritten. The two exceptions
+are the fonts and the basemap, which are plain copies of committed
+binaries: identical every run, so they never show up as a change either.
+The site is written before the feeds on purpose: every feed item links a
+species page, and publishing the feed first would open a window in which
+the newest item points at a page that does not exist yet.
 
 To force a regeneration of today's entry, empty the history:
 
@@ -303,10 +438,40 @@ Copy `.github/bird-of-the-day.yml.example` to
 - Automatically every day at **07:00 UTC**.
 - Manually from the **Actions → Bird of the Day → Run workflow** tab.
 
-The workflow `git add`s `feed.xml`, `history.json`, `index.html`,
-`archive.html`, `archive-*.html`, `birds/`, `cache/`, `maps/` and
-`assets/`, then commits with a message of the form `🐦 Bird of the day:
-2026-04-11` and pushes to the default branch.
+The workflow `git add -f`s `feed.xml`, `history.json`, `index.html`,
+`archive.html`, `birds/`, `cache/`, `maps/` and `assets/` (which carries
+the stylesheet, the fonts and the basemap) in one command. Everything
+else goes through a loop that stages one path at a time, guarded by a
+test that the path exists: `archive-*.html`, then `feed-full.xml`,
+`sitemap.xml`, `robots.txt` and `404.html`.
+
+That loop is not a stylistic choice and should not be "simplified" back
+into the first command. `git add -f` on a literal path that does not
+exist fails outright and leaves *nothing* staged, not even the paths it
+had already accepted, and since Actions runs the step under `bash -e`
+that failure kills the run before it reaches the commit.
+
+The split is between paths that are always there and paths that are only
+sometimes there. The first command's are the ones a repository that has
+published even once always has: the feed, the history, the two fixed
+pages, and the four directories, two of which (`cache/` and `maps/`) ship
+a committed `.gitkeep` precisely so they exist before anything fills
+them. Everything in the loop is conditional. `feed-full.xml` needs a feed
+cap and `sitemap.xml` needs a configured `feed_link`, so neither exists
+on an instance that has set neither. `archive-*.html` is subtler: the
+buckets are written by the site build, and the site build is skipped on a
+run where maintenance or the taxonomy fetch failed, so on a repository
+that has not yet committed a bucket file the pattern can match nothing.
+An unmatched glob is left literal by the shell, which is exactly what the
+existence test is there to drop.
+
+The rule for anyone extending this step: a new path goes in the loop
+unless you can show it is present on every run that reaches it.
+
+It then commits with a message of the form `🐦 Bird of the day:
+2026-04-11`, rebases onto the remote and pushes. The rebase step names
+`origin main` explicitly, so change it if your default branch is called
+something else.
 
 Every run writes a summary to the job log, whether or not anything is
 degraded. In GitHub Actions specifically, each degraded step (a failed
@@ -316,6 +481,34 @@ annotation and appended to the job's step summary. The job itself still
 succeeds (the site keeps publishing through outages); this reporting
 just makes degradation visible instead of silently hiding it in the
 scraped-fallback output.
+
+## Tests and CI
+
+Run the suite locally with:
+
+```bash
+uv run pytest
+```
+
+`.github/workflows/quality.yml` runs the same thing (`uv sync`, then
+`uv run pytest -q`) on every pull request, and on a push that touches
+`scripts/`, `tests/`, `data/`, `pyproject.toml`, `uv.lock`,
+`.python-version` or the workflow itself. That path filter is the point:
+a live instance's daily bot commits nothing but generated output, and
+none of it changes what the suite verifies, so the filter keeps those
+commits from burning CI minutes every single day. No Python version is
+pinned in the workflow; `uv` reads `.python-version` at the repository
+root, so there is one source of truth for it.
+
+There is **no linter and no type checker** configured in this repository,
+and the workflow does not run one. If you want them, that is your call to
+make in your own clone.
+
+The other workflow, `.github/workflows/docker-publish.yml`, builds and
+pushes the multi-arch image. It is guarded by a repository check
+(`if: github.repository == '...'`) so a clone does not try to publish to
+a package registry it has no business writing to. Point it at your own
+repository if you want your clone to build its own image.
 
 ## Self-hosting
 
@@ -334,6 +527,13 @@ The image is published to `ghcr.io/backmind/bird-of-the-day` for
 `linux/amd64` and `linux/arm64`. It runs nginx on port 8080 and a
 built-in cron (supercronic) that regenerates the site daily at 07:00 UTC,
 matching the GitHub Actions cadence. Total image size: ~340 MB.
+
+nginx serves an explicit allow-list of routes (no directory listings, and
+the `cache/` subtree is never exposed) and everything else returns 404.
+The generated `404.html` is what those 404s render, with the site's own
+chrome and the real status code preserved; it is the one route served
+`no-store`, so an intermediary cannot cache a 404 for a species page that
+becomes valid the day its bird is first published.
 
 #### Quick start
 
@@ -380,12 +580,24 @@ and overrides it if set:
 | `BOTD_BACK_DAYS` | `back_days` | `14` |
 | `BOTD_BACKFILL_LIMIT` | `backfill_limit` | `3` |
 | `BOTD_FEED_LINK` | `feed_link` | `https://example.com/birds/` |
+| `BOTD_SITE_AUTHOR` | `site_author` | `Jane Doe` |
+| `BOTD_SITE_AUTHOR_URL` | `site_author_url` | `https://example.com` |
+
+That table is the complete set: every scalar knob that can be overridden
+from the environment is in it, and nothing else is. Nested structures
+(`pools`, `llm`) are not overridable; mount a custom file instead.
 
 `EBIRD_API_KEY` is required. LLM enrichment runs whenever
 `llm.endpoint`, `llm.models` and the `BOTD_LLM_API_KEY` env var are
 all set; otherwise the site renders the scraped descriptions
-directly. The container does **not** read `.env` files (it doesn't
-need to — env vars work everywhere).
+directly. The image ships no `.env` file and does not need one, since
+env vars work everywhere; the loader is still there, so a `.env` mounted
+at `/app/.env` would be read.
+
+One more variable is not a config override: `BOTD_STATE_DIR` is where all
+mutable state is written. The image sets it to `/var/lib/botd`, the
+volume mount point. Unset (local runs, GitHub Actions) it defaults to the
+repository root, which is the layout the rest of this README describes.
 
 #### Secrets via files (Docker / Kubernetes secrets)
 
@@ -430,13 +642,16 @@ The single volume at `/var/lib/botd` holds all mutable state:
 /var/lib/botd/
 ├── cache/               # per-species + taxonomy caches
 ├── maps/                # composed distribution maps embedded in the RSS feed
-├── assets/              # site.css + basemap.png, written/copied at build time
+├── assets/              # site.css + basemap.png + fonts/, written/copied at build time
 ├── birds/               # one canonical page per species ever published
 ├── feed.xml             # the RSS feed
-├── feed-full.xml        # the same feed, whole history
+├── feed-full.xml        # the same feed, whole history (only when a cap is set)
 ├── index.html           # the front page
 ├── archive.html         # the archive front (current month + month directory)
 ├── archive-YYYY-MM.html # one page per calendar month, every plate published in it
+├── 404.html             # error page, served by nginx with a real 404 status
+├── robots.txt           # always written; names the sitemap only when there is one
+├── sitemap.xml          # only when feed_link is set
 └── history.json         # the full publication history
 ```
 
@@ -512,7 +727,11 @@ mount your own at `/etc/supercronic/crontab`.
    cp data/config.example.json data/config.json
    ```
    Set `feed_link` to your `https://<user>.github.io/<repo>/` URL,
-   pick a `language`, and adjust `pools` for your regions.
+   pick a `language`, and adjust `pools` for your regions. Set
+   `site_author` too if you want the site and the feed to credit you;
+   left empty, they credit no one. `feed_link` is worth getting right
+   before the first run: it is what turns on `sitemap.xml`, the
+   `Sitemap:` line in `robots.txt` and the Open Graph tags.
 3. Activate the daily workflow:
    ```bash
    cp .github/bird-of-the-day.yml.example .github/workflows/bird-of-the-day.yml
@@ -590,7 +809,8 @@ Bird-of-the-day/
 ├── .github/
 │   ├── bird-of-the-day.yml.example  # copy to workflows/ to enable daily cron
 │   └── workflows/
-│       └── docker-publish.yml       # build & push multi-arch image to ghcr.io
+│       ├── docker-publish.yml       # build & push multi-arch image to ghcr.io
+│       └── quality.yml              # run the test suite on PRs and code pushes
 ├── Dockerfile                  # multi-stage container build
 ├── .dockerignore
 ├── docker-compose.yml          # one-command self-host
@@ -598,21 +818,23 @@ Bird-of-the-day/
 │   ├── crontab                 # supercronic schedule (07:00 UTC)
 │   ├── entrypoint.sh           # cold-start + supercronic + exec nginx
 │   ├── healthcheck.sh          # smart freshness check (36h window)
-│   ├── nginx.conf              # non-root nginx, port 8080
+│   ├── nginx.conf              # non-root nginx, port 8080, 404 page, allow-list
 │   └── placeholder.html        # cold-start fallback page
 ├── scripts/
+│   ├── __init__.py        # esc_html + load_json_cache, shared by every module
 │   ├── generate.py        # orchestrator (entry point)
 │   ├── http_client.py     # shared retry session + validated image download
 │   ├── ebird_client.py    # eBird API + species selection + taxonomy cache
-│   ├── image_fetcher.py   # Macaulay Library API + og:image fallback
+│   ├── image_fetcher.py   # eBird og:image hero, Macaulay Library API fallback
 │   ├── content_scraper.py # eBird og:description + Wikipedia + BoW
+│   ├── distribution_map.py # GBIF taxon match, density tile URL, IUCN category
 │   ├── llm_enricher.py   # optional LLM content enrichment
 │   ├── llm_validator.py   # structural checks on LLM output (hard/soft)
 │   ├── map_composer.py    # server-side map composition for RSS
 │   ├── name_linker.py     # species name cross-linking
-│   ├── feed_builder.py    # RSS 2.0 generation
+│   ├── feed_builder.py    # RSS 2.0 generation, both feeds
 │   ├── site_builder.py    # index page, plus the chrome/plate/card renderers shared by every page
-│   ├── archive_builder.py # archive front, month buckets, species pages; owns write_site()
+│   ├── archive_builder.py # archive front, month buckets, species pages, sitemap/robots/404; owns write_site()
 │   ├── site_css.py        # the stylesheet, as a Python string, written to assets/site.css
 │   ├── urls.py            # canonical URL/anchor scheme shared by every page and the feed
 │   ├── atomic_io.py       # content-addressed atomic writes (skip pages whose bytes didn't change)
@@ -620,18 +842,24 @@ Bird-of-the-day/
 │   ├── run_report.py      # run summary + GitHub Actions annotations
 │   ├── i18n.py            # Catalog loader + langid wrapper
 │   └── seed_mock.py       # developer-only: populate the site for visual review
+├── tests/                 # pytest suite, one module per concern
 ├── data/
 │   ├── config.example.json     # copy to config.json and customize
 │   ├── assets/basemap@2x.png   # committed OSM/GBIF world tile (map base layer)
+│   ├── assets/fonts/           # self-hosted woff2 webfonts, OFL 1.1 (+ OFL.txt)
 │   └── i18n/{es,en,fr,pt}.json # translation catalogs
 ├── cache/                 # taxonomy + per-species caches (generated)
 ├── maps/                  # composed distribution maps for RSS (generated)
 ├── birds/                 # one canonical page per species ever published (generated)
-├── assets/                # site.css + basemap.png, written/copied at build time (generated)
+├── assets/                # site.css + basemap.png + fonts/, written at build time (generated)
 ├── CNAME.example          # copy to CNAME for custom domain setup
 ├── .env.example           # environment variable template
+├── .gitignore             # secrets, the venv, and the generated site output
+├── .gitattributes         # forces LF on generated output, so Windows runs don't churn it
+├── .python-version        # the interpreter uv installs; CI reads it too
 ├── pyproject.toml         # dependencies and uv metadata
 ├── uv.lock                # lock file
+├── ROADMAP.md             # features under consideration
 ├── LICENSE                # MIT
 └── README.md
 ```
@@ -639,8 +867,13 @@ Bird-of-the-day/
 ## Attribution and legal notes
 
 - **eBird API**: non-commercial use is permitted under the
-  [eBird API Terms of Use](https://ebird.org/api/keygen). The project
-  makes at most one selection call per day.
+  [eBird API Terms of Use](https://ebird.org/api/keygen). A run that draws
+  a `regional` or `europe_random` pool makes one observations query per
+  selection attempt, which is one on every policy but `skip`. A run that
+  draws the `global_taxonomy` pool makes none at all: it reads the taxonomy
+  it already has on disk. The two taxonomy downloads, the localized one and
+  the English one the cross-linker needs, each sit behind an on-disk cache
+  with a 30-day TTL, so neither is fetched more than once a month.
 - **Macaulay Library**: photographs are © their authors. The project
   hot-links the public Cornell CDN for non-commercial display with
   visible photographer attribution, mirroring the embed flow Cornell
@@ -656,7 +889,13 @@ Bird-of-the-day/
   `gbif-light` OpenStreetMap style, downloaded once) rather than a live
   third-party basemap request. Both layers are credited in the map
   itself: "OpenStreetMap · GBIF".
+- **Webfonts**: Fraunces and Source Serif 4, both under the
+  [SIL Open Font License 1.1](https://openfontlicense.org/). The `.woff2`
+  files are committed under `data/assets/fonts/` alongside an `OFL.txt`
+  recording their provenance; no glyphs were added, removed or modified.
 - **Generated data** (feed, site): MIT, free to reuse with attribution.
+  The template's own footer credit is not part of that grant: it names
+  who wrote the software, and it stays on every page a clone publishes.
 
 ## Privacy
 
@@ -664,12 +903,16 @@ This site stores your theme preference (light/dark) in `localStorage` so
 it persists between visits. That's the only client-side state, it never
 leaves the browser, and it falls under the "strictly necessary functional
 preferences" exemption of the EU ePrivacy Directive — no consent banner
-or cookie notice is required. There are no cookies, no analytics, no
-trackers, and no third-party requests beyond Google Fonts (for
-typography), the Macaulay Library CDN (for photos), and the GBIF tile
-server (for the live occurrence-density overlay on distribution maps;
-the base map layer underneath it is a committed local asset, not a
-third-party request).
+or cookie notice is required. There are no cookies, no analytics and no
+trackers.
+
+Exactly two third-party requests are made to render a page: the Macaulay
+Library CDN, for the photo, and the GBIF tile server, for the live
+occurrence-density overlay on a distribution map. Nothing else leaves the
+site. The typefaces are served from the site's own `assets/fonts/`, not
+from a font CDN, and the base map layer under the GBIF overlay is a
+committed local asset. A page with no photo and no map (the empty site,
+before the first bird) makes no external request at all.
 
 ## License
 

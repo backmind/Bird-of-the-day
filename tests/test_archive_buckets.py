@@ -6,13 +6,13 @@ from scripts import archive_builder, site_builder
 from scripts.i18n import Catalog
 
 
-def _entry(code, date, number):
+def _entry(code, date, number, *, image_url=None):
     return site_builder.SiteEntry(
         species_code=code,
         common_name=f"Bird {code}",
         scientific_name="Genus species",
         date=date,
-        image_url=None,
+        image_url=image_url,
         photographer="",
         attribution="",
         description="A description.",

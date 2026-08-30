@@ -10,7 +10,45 @@ across all of them.
 from __future__ import annotations
 
 CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,400;9..144,500;9..144,600;9..144,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap');
+/* ─── self-hosted variable fonts ──────────────────────────────────
+   Fraunces (opsz, wght, SOFT axes) and Source Serif 4 (opsz, wght),
+   both OFL 1.1, subset to latin and latin-ext. The woff2 files are
+   published to assets/fonts/ by archive_builder.write_site, next to
+   this stylesheet (assets/site.css), so the relative src urls below
+   ('fonts/<file>.woff2') resolve without depending on page depth.
+   No request ever leaves the site to render it. */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('fonts/fraunces-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('fonts/fraunces-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('fonts/source-serif-4-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('fonts/source-serif-4-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
 
 /* ─── palette ──────────────────────────────────────────────────────
    Field Journal at Dawn — warm parchment + deep teal sky + brushed bronze
@@ -600,7 +638,13 @@ a.republished-chip:hover {
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 2.5rem 1.75rem;
 }
-.card a { display: contents; color: inherit; text-decoration: none; }
+/* A plain block box, not `display: contents`: several browsers drop a
+   `display: contents` anchor from the accessibility tree entirely,
+   taking the card's only link out with it. `.card` sets no layout rules
+   of its own, so this anchor's height is still just the stacked height
+   of its children, same as when its own box was suppressed: the design
+   does not move, only the accessibility tree gains the link back. */
+.card a { display: block; color: inherit; text-decoration: none; }
 .card-thumb {
   /* 3:2 landscape, matching the hero plate-image. Most Macaulay photos
      are landscape DSLR shots so this fills cleanly. The few portrait
@@ -750,6 +794,12 @@ a.republished-chip:hover {
   line-height: 1;
 }
 .archive-intro p { font-style: italic; color: var(--ink-soft); margin: 0; }
+
+/* The 404's way back. It sits outside .archive-intro so it keeps the
+   ordinary link styling instead of the intro's italic, which means it
+   has to be centred on its own or it drifts left under a centred
+   heading. */
+.notfound-back { text-align: center; }
 
 /* ─── footer ───────────────────────────────────────────────────── */
 footer.site {
@@ -1071,4 +1121,29 @@ footer.site a { color: var(--ink-soft); }
 .species-history a { color: var(--ink); text-decoration: none; }
 .species-history a:hover { color: var(--accent); }
 .species-history .glyph { color: var(--ink-faint); }
+
+/* ─── reduced motion ────────────────────────────────────────────────
+   Durations collapse to (near) zero everywhere, which removes every
+   transition and animation as perceived motion without deleting the
+   property itself: deleting `transition` outright is harmless, but
+   deleting `transform` outright is not, since `.iucn-badge::after`
+   uses it to center a tooltip rather than to move anything. The few
+   hover effects that do move something (image zoom, icon rotation,
+   badge scale) are reset to their resting transform below, so hovering
+   changes nothing at all instead of jumping to the end state. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .plate:hover .plate-image img,
+  .card a:hover .card-thumb img,
+  .theme-toggle:hover,
+  .iucn-badge:hover {
+    transform: none;
+  }
+}
 """.strip()
