@@ -81,6 +81,18 @@ class TestSitemap:
         assert locs[urls.absolute(FEED_LINK, "birds/c.html")] == "2026-08-02"
         assert locs[urls.absolute(FEED_LINK, "birds/a.html")] == "2026-07-31"
 
+    def test_index_and_archive_front_lastmod_is_the_most_recent_publication(
+        self, tmp_path, catalog, entries
+    ):
+        archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
+        locs = _sitemap_locs(tmp_path)
+        # entries[0] ("c", 2026-08-02) is the newest publication on the
+        # whole site; pinned to that exact date so dating these two
+        # pages by the oldest entry instead (entries[-1], 2026-07-15)
+        # cannot pass unnoticed.
+        assert locs[urls.absolute(FEED_LINK, urls.INDEX_PAGE)] == "2026-08-02"
+        assert locs[urls.absolute(FEED_LINK, urls.ARCHIVE_FRONT)] == "2026-08-02"
+
     def test_bucket_lastmod_is_the_newest_entry_in_that_month(
         self, tmp_path, catalog, entries
     ):
@@ -154,12 +166,23 @@ class TestNotFound:
         assert '<header class="site">' in html
         assert '<footer class="site">' in html
 
-    def test_copy_comes_from_the_catalog(self, tmp_path, catalog, entries):
+    def test_copy_comes_from_the_catalog(self, tmp_path, entries):
+        # A non-English catalog: notfound.title is also a substring of
+        # <title> and notfound.message is also the page's
+        # <meta name="description"> content, both in <head>, and both
+        # of those already carry this same catalog's strings on every
+        # page. Loading a language other than the fixture "en" catalog
+        # every other test in this class uses is what stops a hardcoded
+        # English literal in build_not_found from passing this test.
+        catalog = Catalog.load("es")
         archive_builder.write_site(entries, tmp_path, catalog, feed_link=FEED_LINK)
         html = (tmp_path / urls.NOT_FOUND).read_text(encoding="utf-8")
-        assert catalog.t("notfound.title") in html
-        assert catalog.t("notfound.message") in html
-        assert catalog.t("nav.back_to_archive") in html
+        # Scoped to <main>: without this, the assertions below would be
+        # satisfied by <head> alone even if <main> were empty.
+        main_html = html[html.index('<main id="main">') : html.index("</main>")]
+        assert catalog.t("notfound.title") in main_html
+        assert catalog.t("notfound.message") in main_html
+        assert catalog.t("nav.back_to_archive") in main_html
 
     def test_paths_are_absolute_when_a_feed_link_is_configured(
         self, tmp_path, catalog, entries
