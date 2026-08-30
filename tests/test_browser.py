@@ -52,19 +52,35 @@ pytestmark = pytest.mark.browser
 # Two days is the smallest history that produces every page class at
 # once: a home page with a hero and a populated grid, an archive front
 # with a month index, a month bucket, and two species pages. Both birds
-# have a photograph, so the hot-linked Macaulay CDN is exercised too.
+# have a photograph, so the hot-linked Macaulay CDN is exercised too,
+# and the second day's bird carries a GBIF distribution map (see
+# site_fixture.MAPPED_SPECIES) so that both plate layouts, with atlas
+# and without, are measured here.
 SITE_DAYS = ["2026-01-01", "2026-01-02"]
 
-# Every page class the generator writes, as a browser reaches it. The
-# 404 is requested by a path that does not exist, which is the only way
-# to get the status: asking for /404.html by name is an ordinary hit.
+# Every page class the generator writes, as a browser reaches it. Both
+# species pages are listed, not one: fakwrn1's plate carries the atlas
+# and fakhaw1's does not, and the layouts fail differently. The 404 is
+# requested by a path that does not exist, which is the only way to get
+# the status: asking for /404.html by name is an ordinary hit.
 PAGE_PATHS = {
     "index": "/index.html",
     "archive-front": "/archive.html",
     "month-bucket": "/archive-2026-01.html",
-    "species": "/birds/fakwrn1.html",
+    "species-with-atlas": f"/birds/{site_fixture.MAPPED_SPECIES}.html",
+    "species-without-atlas": "/birds/fakhaw1.html",
     "not-found": "/no-such-page",
 }
+
+# Where the atlas frame, the widest thing the site draws, must appear:
+# the three page classes that render a plate. The archive front is not
+# among them, because it renders cards and a month index rather than
+# plates, so no atlas reaches it however recent the mapped species is.
+PAGES_WITH_ATLAS = [
+    PAGE_PATHS["index"],
+    PAGE_PATHS["month-bucket"],
+    PAGE_PATHS["species-with-atlas"],
+]
 ALL_PAGES = list(PAGE_PATHS.values())
 CONTENT_PAGES = [p for name, p in PAGE_PATHS.items() if name != "not-found"]
 
@@ -510,6 +526,23 @@ def test_no_page_with_content_says_noindex(browser, base_url, path):
 # 390x844 is the iPhone 12/13/14 logical viewport, and the narrowest
 # width worth supporting: below it the layout is nobody's actual phone.
 PHONE = {"width": 390, "height": 844}
+
+
+@pytest.mark.parametrize("path", ALL_PAGES, ids=_page_id)
+def test_the_fixture_site_really_renders_an_atlas(browser, base_url, path):
+    """The overflow check below must never quietly stop seeing the atlas.
+
+    Its frame is the widest single element the site draws, and it is
+    absent from a plate whose species GBIF does not know, so a fixture
+    change that dropped the map would take the hardest case out of the
+    measurement without any test going red. This one goes red instead.
+    """
+    with visit(browser, base_url, path) as v:
+        frames = v.page.locator(".atlas-frame").count()
+    if path in PAGES_WITH_ATLAS:
+        assert frames == 1, f"{path} should render exactly one atlas, found {frames}"
+    else:
+        assert frames == 0, f"{path} renders an atlas it has no map for"
 
 
 @pytest.mark.parametrize("path", ALL_PAGES, ids=_page_id)

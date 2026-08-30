@@ -287,7 +287,12 @@ overflows sideways at 390 CSS pixels.
 It serves the very site `tests/site_fixture.py` builds for the
 end-to-end tests, over HTTP rather than `file://`, because relative
 paths, the 404 status and font loading all behave differently on the
-two. Playwright is a dev dependency and must stay one; the module skips
+two. One species in that fixture carries a GBIF distribution map and
+the rest do not, on purpose: the atlas frame is the widest thing a
+plate draws, so a fixture with no mapped species would leave the
+overflow check blind to the hardest case. `test_browser.py` asserts the
+atlas is actually present on the three page classes that render a plate,
+so that coverage cannot evaporate silently. Playwright is a dev dependency and must stay one; the module skips
 itself when Playwright is missing and each test skips when its browser
 is, so `uv run pytest` on a fresh clone is green plus skips, never an
 error.

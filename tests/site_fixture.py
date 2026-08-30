@@ -15,16 +15,26 @@ Only the network boundary is stubbed:
 - ``content_scraper.scrape_species_content``
 - ``llm_enricher.is_configured`` (forced False, so the LLM branch is
   skipped the same honest way it is when nobody configured one)
-- ``distribution_map.gbif_taxon_match_ex`` / ``fetch_iucn_category`` and
-  ``map_composer.download_image``, stubbed to raise if ever called. The
-  fake content below never sets ``distribution_map_url`` and always
-  reports ``gbif_match=MATCH_NONE``, so nothing in a real run should ever
-  reach GBIF or download a density tile; these three exist as a trip
-  wire, not because the happy path needs them.
+- ``map_composer.download_image``, which answers with a generated
+  density tile instead of GBIF's, and raises for any URL other than the
+  one the fixture's own mapped species asks for
+- ``distribution_map.gbif_taxon_match_ex`` / ``fetch_iucn_category``,
+  stubbed to raise if ever called. The fake content below answers with
+  a settled ``gbif_match`` and, where there is a map, a taxon key
+  already in hand, so neither backfill's GBIF healer nor the scraper
+  should ever reach for them; they exist as a trip wire, not because
+  the happy path needs them.
+
+One species (:data:`MAPPED_SPECIES`) carries a GBIF distribution map and
+the rest do not, so both plate layouts, the one with an atlas and the one
+without, are produced by every suite that builds this site. That matters
+most to the browser suite: the atlas frame is the widest thing the site
+draws, and a fixture that never rendered one would leave the horizontal
+overflow check blind to it.
 
 Everything else is real: page rendering, feed XML, the archive, the
-sitemap, robots.txt, 404.html, atomic writes, and backfill's decision
-about what needs healing.
+composed map PNG, the sitemap, robots.txt, 404.html, atomic writes, and
+backfill's decision about what needs healing.
 """
 
 from __future__ import annotations
@@ -34,6 +44,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from PIL import Image, ImageDraw
 
 from scripts import (
     content_scraper,
@@ -97,6 +108,44 @@ FAKE_IMAGES: dict[str, image_fetcher.ImageResult] = {
     "fakowl1": _no_image("fakowl1"),
 }
 
+# The one species GBIF knows about. Deliberately the second day's bird,
+# so that on a two-day site it is also the most recent one and therefore
+# the hero on the home page, on the archive front and in its month
+# bucket: four page classes rendering the atlas rather than one. Every
+# other bird in the cast has no map, which is the other layout, and
+# keeps ``fakowl1``'s "nothing at all to draw" case intact.
+MAPPED_SPECIES = "fakwrn1"
+
+# An arbitrary GBIF usageKey. Real only in shape: what matters is that
+# the URL built from it is the genuine hot-linked density tile address,
+# so the browser suite's allowed-origins check has something to allow
+# rather than merely permitting api.gbif.org in the abstract.
+FAKE_GBIF_KEY = 5229493
+FAKE_MAP_URL = distribution_map.gbif_map_url(FAKE_GBIF_KEY)
+
+
+def _fake_density_tile(url: str, session=None, timeout: int = 0) -> Image.Image:
+    """Stand in for GBIF's occurrence density tile.
+
+    Drawn rather than downloaded, and only for the one URL this fixture
+    ever asks for: any other URL is a real outbound request that leaked
+    past the boundary, and raises the way the other trip wires do.
+
+    Transparent but for a couple of blobs in the density ramp's colours,
+    which is what a real tile is: hexagons on nothing. ``compose_map``
+    resizes it to the basemap and alpha-composites it, so the exact size
+    here does not matter, only that it is square and has an alpha
+    channel.
+    """
+    if url != FAKE_MAP_URL:
+        _boom(url)
+    tile = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(tile)
+    draw.ellipse((60, 120, 210, 260), fill=(255, 200, 0, 210))
+    draw.ellipse((150, 200, 300, 330), fill=(220, 70, 0, 190))
+    draw.ellipse((330, 260, 430, 360), fill=(139, 0, 0, 170))
+    return tile
+
 TEST_CONFIG: dict = {
     "language": "en",
     "ebird_locale": "en",
@@ -124,13 +173,18 @@ def _fake_scrape_species_content(
 ) -> content_scraper.SpeciesContent:
     """Stand-in for the real scrape: real fields, fictional content.
 
-    ``gbif_match=MATCH_NONE`` is what keeps backfill's GBIF healer from
-    ever retrying this species (mirrors an authoritative "GBIF does not
-    know this name"), and the empty ``distribution_map_url`` is what
-    keeps ``map_composer.ensure_composed_maps`` from ever trying to
-    download a density tile. Together they make the distribution_map /
-    map_composer network surface unreachable by construction.
+    Every species comes back with its GBIF question already settled, so
+    backfill's healer never retries one and ``distribution_map`` is
+    never reached: :data:`MAPPED_SPECIES` with ``MATCH_OK`` and a taxon
+    key already in hand, everything else with ``MATCH_NONE``, which is
+    an authoritative "GBIF does not know this name" rather than a
+    failure worth another attempt.
+
+    ``MAPPED_SPECIES`` is therefore the only one whose plate renders the
+    atlas, and the only one ``map_composer.ensure_composed_maps`` ever
+    composes a PNG for.
     """
+    mapped = species_code == MAPPED_SPECIES
     return content_scraper.SpeciesContent(
         description=(
             f"{species_code} is a fictional species invented for the "
@@ -141,9 +195,9 @@ def _fake_scrape_species_content(
         taxonomy={},
         wikipedia_url=f"https://en.wikipedia.org/wiki/{species_code}",
         wikipedia_language="en",
-        gbif_taxon_key=None,
-        distribution_map_url="",
-        gbif_match=distribution_map.MATCH_NONE,
+        gbif_taxon_key=FAKE_GBIF_KEY if mapped else None,
+        distribution_map_url=FAKE_MAP_URL if mapped else "",
+        gbif_match=distribution_map.MATCH_OK if mapped else distribution_map.MATCH_NONE,
         iucn_code="",
         iucn_birdlife_url="",
     )
@@ -260,10 +314,13 @@ def install(
     monkeypatch.setattr(llm_enricher, "is_configured", lambda config: False)
 
     # distribution_map / map_composer: stubbed at the actual egress points
-    # (not at a module above them), as a trip wire, see the module docstring.
+    # (not at a module above them), see the module docstring. The first
+    # two are pure trip wires. The third draws the density tile for the
+    # one species that has a map, and is itself a trip wire for any
+    # other URL.
     monkeypatch.setattr(distribution_map, "gbif_taxon_match_ex", _boom)
     monkeypatch.setattr(distribution_map, "fetch_iucn_category", _boom)
-    monkeypatch.setattr(map_composer, "download_image", _boom)
+    monkeypatch.setattr(map_composer, "download_image", _fake_density_tile)
 
     return root
 
