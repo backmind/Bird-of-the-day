@@ -81,7 +81,10 @@ ops, or Docker if you run your own server.
 ### Self-hosting with Docker
 
 The image is published to `ghcr.io/backmind/bird-of-the-day` for
-`linux/amd64` and `linux/arm64`. It runs nginx on port 8080 and a
+`linux/amd64` and `linux/arm64`. Tags: `latest` follows the default
+branch, `sha-xxxxxxx` pins one commit, and a published release adds
+`vX.Y.Z`, `X.Y` and `X`, so a compose file can pin a version instead of
+riding whatever landed this morning. It runs nginx on port 8080 and a
 built-in cron (supercronic) that regenerates the site daily at 07:00 UTC
 (see [Cron schedule and timezone](#cron-schedule-and-timezone)). Total
 image size: ~340 MB.

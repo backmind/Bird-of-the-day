@@ -17,6 +17,11 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/docker-publish.yml'
+  # Publishing a release also publishes an image for it, so a version can
+  # be pinned in a compose file. The path filter above deliberately does
+  # not apply here: a release is worth an image whatever it touched.
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -54,6 +59,9 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
             type=schedule,pattern={{date 'YYYY-MM-DD'}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
           labels: |
             org.opencontainers.image.title=Bird of the Day
             org.opencontainers.image.description=Daily bird species RSS feed and static site, self-hostable.
