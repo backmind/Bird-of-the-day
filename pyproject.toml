@@ -18,6 +18,18 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
+# Development only. The four runtime dependencies above are the whole of
+# what a published site needs; nothing here may ever move up into them.
+# Playwright in particular ships a browser, and the browser suite that
+# uses it skips itself when either the package or the browser is absent
+# (see tests/test_browser.py), so an ordinary `uv run pytest` on a fresh
+# clone still reports the whole suite green plus those skips.
 dev = [
     "pytest>=9.0.3",
+    "playwright>=1.49",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "browser: needs Playwright and a real browser; skipped when either is absent",
 ]

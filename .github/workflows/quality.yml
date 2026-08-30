@@ -46,4 +46,34 @@ jobs:
         run: uv sync
 
       - name: Run tests
+        # No browser is installed in this job, so tests/test_browser.py
+        # skips itself here and the browser job below is the only place
+        # that signal comes from. That is the point: a browser download
+        # that fails, or a rendering engine that changes its mind about
+        # a computed style, must never take the ordinary suite with it.
         run: uv run pytest -q
+
+  browser:
+    # The browser-only half of the suite: webfonts that actually painted,
+    # requests that actually left, a focus ring that actually drew, a
+    # layout that actually overflowed. Separate job because it needs a
+    # ~150 MB Chromium the job above deliberately does without.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Install Chromium
+        # Only chromium, and only its own system libraries: the suite
+        # asserts about one rendering engine, so downloading three would
+        # be paying for browsers nothing here ever launches.
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run the browser suite
+        run: uv run pytest -q -m browser

@@ -74,7 +74,8 @@ permalinks](docs/ARCHITECTURE.md#archive-and-permalinks).
 
 - Python 3.12+, managed with [`uv`](https://github.com/astral-sh/uv)
 - Four runtime dependencies: `requests`, `beautifulsoup4`, `langid`, `Pillow`
-- One dev dependency: `pytest`
+- Two dev dependencies: `pytest`, and `playwright` for the browser tests
+  (which skip themselves when it or its browser is absent)
 - No database. State lives in a few paths next to the code: `history.json`
   is the record of what was published, `cache/` holds the per-species
   scrapes and the taxonomy, `maps/` the composed map PNGs. Everything
