@@ -6,3 +6,15 @@
 *.css  text eol=lf
 *.json text eol=lf
 *.py   text eol=lf
+
+# Everything the container image executes or parses. A Windows checkout
+# without these produces an image that dies on startup with
+# "env: 'bash\r': No such file or directory", because the CRLF is part
+# of the interpreter name in the shebang. The published image is built
+# on Linux and was never affected; this is for whoever clones the
+# template and runs docker build on their own machine.
+*.sh   text eol=lf
+*.conf text eol=lf
+*.yml  text eol=lf
+Dockerfile      text eol=lf
+docker/crontab  text eol=lf
