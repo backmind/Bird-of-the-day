@@ -105,7 +105,7 @@ docker run -d --name bird-of-the-day \
 ```
 
 Open <http://localhost:8080>. On a fresh container the first request may
-take 30–60 seconds while the generator runs synchronously to populate
+take 30 to 60 seconds while the generator runs synchronously to populate
 the volume.
 
 #### Docker Compose
@@ -258,16 +258,39 @@ The `--read-only` root filesystem requires writable `tmpfs` for
 nginx's working directories. The container has been tested in this
 mode end-to-end.
 
-Resource hints: ~50–100 MB RAM at idle, ~150 MB during generation,
+Resource hints: ~50 to 100 MB RAM at idle, ~150 MB during generation,
 bursty CPU. A floor of `mem_limit: 256m` and `cpus: 0.5` is
 comfortable.
 
 #### Building locally
 
+Build from a clone of this template. The published image is built from
+this repository's `main`, so an instance repository's own changes under
+`docker/` do not reach `ghcr.io`: if you have customised the crontab or
+the entrypoint, build the image yourself rather than pulling it.
+
 ```bash
+git clone https://github.com/backmind/Bird-of-the-day.git
+cd Bird-of-the-day
 docker build -t bird-of-the-day .
 # Multi-arch:
 docker buildx build --platform linux/amd64,linux/arm64 -t bird-of-the-day .
+```
+
+If you are on Windows and your clone predates 2026-08-30, the image will
+build and then die on startup with:
+
+```
+env: 'bash\r': No such file or directory
+```
+
+That is a checkout with CRLF line endings: the carriage return becomes
+part of the interpreter name in the entrypoint's shebang. `.gitattributes`
+now pins LF on everything the image executes, so a fresh clone is fine.
+An existing one is repaired with:
+
+```bash
+git rm --cached -r . && git reset --hard
 ```
 
 ### Self-hosting on GitHub Pages
