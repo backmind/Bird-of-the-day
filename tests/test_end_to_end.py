@@ -1,8 +1,8 @@
-"""End-to-end test of ``scripts.generate.main()``.
+"""End-to-end tests of ``scripts.generate.main()``.
 
 Drives the real orchestration -- the real selection window, the real page
 builders, the real feed builders, the real write-if-changed policy and the
-real self-healing backfill -- against three fabricated days of history in a
+real self-healing backfill -- against fabricated days of history in a
 throwaway state directory. Only the network boundary is stubbed:
 
 - ``ebird_client.select_species`` / ``get_full_taxonomy`` /
@@ -22,11 +22,19 @@ Everything else is real: page rendering, feed XML, the archive, the
 sitemap, robots.txt, 404.html, atomic writes, and backfill's decision
 about what needs healing.
 
+Each test below is one property, named as a statement of what must be
+true, so a failure says which property broke instead of aborting a long
+narrative at its first assertion. The fixtures below form a small chain
+(``state_dir`` -> ``after_first_day`` -> ``after_second_day``); a test
+that needs a prior day's state depends on the fixture that produces it,
+so every test gets a *fresh* run of whatever days it needs and none of
+them depend on another test having run first.
+
 What this file deliberately does not cover: the actual content of a
 scrape or an LLM enrichment (both are stubbed away), real GBIF/IUCN
 lookups or composed distribution maps (never engaged, see above), and
 multi-day feed freeze/thaw (``max_feed_entries`` is set comfortably above
-the three entries this test ever produces, so nothing is ever frozen).
+the entries any of these tests ever produce, so nothing is ever frozen).
 """
 
 from __future__ import annotations
@@ -171,7 +179,7 @@ def _freeze(monkeypatch: pytest.MonkeyPatch, iso_date: str) -> None:
     module. Every other module keeps ticking on the real clock -- visible
     in the footer credit and the RSS channel's copyright year, both of
     which read ``datetime.now(timezone.utc).year`` themselves and which
-    this test does not assert on for that reason.
+    these tests do not assert on for that reason.
     """
     year, month, day = (int(part) for part in iso_date.split("-"))
     fixed = datetime(year, month, day, 12, tzinfo=timezone.utc)
@@ -191,6 +199,14 @@ def _snapshot(root: Path) -> dict[str, tuple[bytes, int]]:
         for p in root.rglob("*")
         if p.is_file()
     }
+
+
+# ---------------------------------------------------------------------------
+# Fixtures: environment wiring, then one fixture per day a test may need.
+# Each depends on pytest's function-scoped tmp_path, so every test gets its
+# own fresh state directory and re-runs whatever prior days it needs itself
+# -- no test's pass/fail depends on another test having run first.
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -265,19 +281,47 @@ def state_dir(tmp_path, monkeypatch) -> Path:
     return root
 
 
-def test_daily_pipeline_end_to_end(state_dir, monkeypatch):
-    history_path = state_dir / "history.json"
-
-    # ------------------------------------------------------------------
-    # 1. A first run on empty state publishes.
-    # ------------------------------------------------------------------
+@pytest.fixture
+def after_first_day(state_dir, monkeypatch) -> Path:
+    """State after publishing 2026-01-01's bird: one history entry."""
     _freeze(monkeypatch, "2026-01-01")
     generate.main()
+    return state_dir
 
-    history = json.loads(history_path.read_text(encoding="utf-8"))
+
+@pytest.fixture
+def after_second_day(after_first_day, monkeypatch) -> Path:
+    """State after publishing 2026-01-02's bird on top of the first day."""
+    _freeze(monkeypatch, "2026-01-02")
+    generate.main()
+    return after_first_day
+
+
+@pytest.fixture
+def after_no_photo_day(state_dir, monkeypatch) -> Path:
+    """A single, otherwise-empty-state run whose photo strategy finds nothing.
+
+    Deliberately independent of ``after_first_day`` / ``after_second_day``:
+    this property has nothing to do with prior publications, so it doesn't
+    borrow their state.
+    """
+    _freeze(monkeypatch, "2026-01-03")
+    generate.main()
+    return state_dir
+
+
+# ---------------------------------------------------------------------------
+# Tests: one property each.
+# ---------------------------------------------------------------------------
+
+
+def test_first_run_on_empty_state_publishes(after_first_day):
+    state_dir = after_first_day
+    bird_a = FAKE_BIRDS["2026-01-01"]
+
+    history = json.loads((state_dir / "history.json").read_text(encoding="utf-8"))
     assert len(history["entries"]) == 1
     entry = history["entries"][0]
-    bird_a = FAKE_BIRDS["2026-01-01"]
     assert entry["speciesCode"] == bird_a["speciesCode"]
     assert entry["comName"] == bird_a["comName"]
     assert entry["sciName"] == bird_a["sciName"]
@@ -306,11 +350,12 @@ def test_daily_pipeline_end_to_end(state_dir, monkeypatch):
     feed_xml = (state_dir / "feed.xml").read_text(encoding="utf-8")
     assert bird_a["comName"] in feed_xml
 
-    # ------------------------------------------------------------------
-    # 2. A second run the same day changes nothing on disk.
-    # ------------------------------------------------------------------
+
+def test_second_run_same_day_rewrites_nothing(after_first_day):
+    state_dir = after_first_day
+
     before = _snapshot(state_dir)
-    generate.main()  # clock is still frozen on 2026-01-01
+    generate.main()  # clock is still frozen on 2026-01-01 by the fixture
     after = _snapshot(state_dir)
 
     assert after.keys() == before.keys(), "second run created or removed files"
@@ -337,14 +382,13 @@ def test_daily_pipeline_end_to_end(state_dir, monkeypatch):
             f"{relative} was rewritten even though its content did not change"
         )
 
-    # ------------------------------------------------------------------
-    # 3. A second day publishes a second bird, keeping the first.
-    # ------------------------------------------------------------------
-    _freeze(monkeypatch, "2026-01-02")
-    generate.main()
 
-    history = json.loads(history_path.read_text(encoding="utf-8"))
+def test_second_day_publishes_without_losing_the_first(after_second_day):
+    state_dir = after_second_day
+    bird_a = FAKE_BIRDS["2026-01-01"]
     bird_b = FAKE_BIRDS["2026-01-02"]
+
+    history = json.loads((state_dir / "history.json").read_text(encoding="utf-8"))
     assert [e["speciesCode"] for e in history["entries"]] == [
         bird_a["speciesCode"], bird_b["speciesCode"],
     ]
@@ -358,16 +402,12 @@ def test_daily_pipeline_end_to_end(state_dir, monkeypatch):
     assert bird_a["comName"] in archive_html
     assert bird_b["comName"] in archive_html
 
-    # ------------------------------------------------------------------
-    # 4. A run whose photograph strategy finds nothing still publishes,
-    #    with no photo and a search link, and no broken image URL
-    #    anywhere in the output.
-    # ------------------------------------------------------------------
-    _freeze(monkeypatch, "2026-01-03")
-    generate.main()
 
-    history = json.loads(history_path.read_text(encoding="utf-8"))
+def test_no_photo_run_still_publishes_with_no_broken_url(after_no_photo_day):
+    state_dir = after_no_photo_day
     bird_c = FAKE_BIRDS["2026-01-03"]
+
+    history = json.loads((state_dir / "history.json").read_text(encoding="utf-8"))
     entry_c = history["entries"][-1]
     assert entry_c["speciesCode"] == bird_c["speciesCode"]
     assert entry_c["imageUrl"] is None
@@ -387,10 +427,10 @@ def test_daily_pipeline_end_to_end(state_dir, monkeypatch):
             text = path.read_text(encoding="utf-8")
             assert "/asset//" not in text, f"broken image URL (empty asset id) in {path}"
 
-    # ------------------------------------------------------------------
-    # 5. The sitemap lists exactly the HTML the run wrote, compared
-    #    against the files on disk rather than a hand-written list.
-    # ------------------------------------------------------------------
+
+def test_sitemap_lists_exactly_the_html_on_disk(after_second_day):
+    state_dir = after_second_day
+
     sitemap_root = ET.fromstring(
         (state_dir / "sitemap.xml").read_text(encoding="utf-8")
     )
