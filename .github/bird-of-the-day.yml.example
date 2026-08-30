@@ -33,6 +33,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # assets/ carries the stylesheet, the self-hosted woff2 fonts and
+          # the published basemap: the site cannot render without it.
           git add -f feed.xml history.json index.html archive.html archive-*.html birds/ cache/ maps/ assets/
           # feed-full.xml, sitemap.xml, robots.txt and 404.html only exist
           # once the build has actually produced them (a feed cap, a

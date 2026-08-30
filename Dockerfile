@@ -16,9 +16,11 @@
 #       --restart unless-stopped \
 #       bird-of-the-day
 #
-# The container serves the generated site (/, /archive.html, its month and
-# species pages, /feed.xml) on port 8080. A built-in cron daemon (supercronic)
-# regenerates the site daily at 07:00 UTC.
+# The container serves the generated site on port 8080: /, /archive.html and
+# its month and species pages, /feed.xml and /feed-full.xml, plus /robots.txt,
+# /sitemap.xml and a real 404 rendered from the generated /404.html. Routes are
+# an explicit allow-list in docker/nginx.conf; everything else returns 404. A
+# built-in cron daemon (supercronic) regenerates the site daily at 07:00 UTC.
 
 # ============================================================================
 # Stage 1 — builder
