@@ -155,6 +155,12 @@ CI](docs/ARCHITECTURE.md#tests-and-ci) for what CI runs and when.
   hot-links the public Cornell CDN for non-commercial display with
   visible photographer attribution, mirroring the embed flow Cornell
   itself offers.
+- **iNaturalist and Wikimedia Commons**: when Cornell does not answer
+  (both of its hosts have sat behind a bot gate since September 2026),
+  the photograph comes from the iNaturalist taxon or from the species'
+  Wikipedia article, Creative Commons licences only, NC ones included,
+  credited with author and licence. That is one more reason the
+  non-commercial line above matters.
 - **Merlin / eBird and Birds of the World text**: © Cornell Lab of
   Ornithology. The feed reproduces short fragments with clear
   attribution and links back to the source, with no commercial purpose.
@@ -183,9 +189,11 @@ preferences" exemption of the EU ePrivacy Directive: no consent banner
 or cookie notice is required. There are no cookies, no analytics and no
 trackers.
 
-Exactly two third-party requests are made to render a page: the Macaulay
-Library CDN, for the photo, and the GBIF tile server, for the live
-occurrence-density overlay on a distribution map. Nothing else leaves the
+Exactly two third-party requests are made to render a page: the photo's
+host (the Macaulay Library CDN, iNaturalist's open-data bucket or
+Wikimedia's thumbnail server, always without query strings) and the GBIF
+tile server, for the live occurrence-density overlay on a distribution
+map. Nothing else leaves the
 site. The typefaces are served from the site's own `assets/fonts/`, not
 from a font CDN, and the base map layer under the GBIF overlay is a
 committed local asset. A page with no photo and no map (the empty site,

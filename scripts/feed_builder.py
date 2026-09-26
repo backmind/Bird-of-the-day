@@ -329,11 +329,16 @@ def build_feed(
         # Media RSS for the hero photo. Not <enclosure>, which requires
         # a byte length we do not know and would have to either fake or
         # fetch. Macaulay URLs carry no extension; the CDN serves JPEG.
+        # Commons thumbnails keep the file's own extension.
         if entry.image_url:
             media = ET.SubElement(item, f"{{{MEDIA_NS}}}content")
             media.set("url", entry.image_url)
             media.set("medium", "image")
-            media.set("type", "image/jpeg")
+            media.set(
+                "type",
+                "image/png" if entry.image_url.lower().endswith(".png")
+                else "image/jpeg",
+            )
             if entry.image_attribution:
                 credit = ET.SubElement(media, f"{{{MEDIA_NS}}}credit")
                 credit.set("role", "photographer")

@@ -720,6 +720,7 @@ def _select_and_fetch(
                 species_code, session=session, locale=ebird_locale,
                 ordinal=ordinal,
                 seen_asset_ids=_seen_asset_ids(history_entries, species_code),
+                scientific_name=species["sciName"],
             )
             image_fetcher.save_cached_image(
                 species_code, image, str(CACHE_DIR), ordinal=ordinal

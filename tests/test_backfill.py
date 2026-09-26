@@ -219,7 +219,7 @@ class TestImageBackfill:
 
     def _fake_fetch(self, monkeypatch, result, calls=None):
         def _fetch(code, session=None, locale="en", *, ordinal=0,
-                   seen_asset_ids=frozenset()):
+                   seen_asset_ids=frozenset(), scientific_name=""):
             if calls is not None:
                 calls.append((code, ordinal, sorted(seen_asset_ids)))
             return result
@@ -399,13 +399,16 @@ class TestImageBackfill:
         assert kinds.count("image") == 1
         assert kinds.count("gbif") == 2
 
-    def test_an_absent_photograph_is_not_retried(self, tmp_path, monkeypatch):
-        """Sin foto significa que se preguntó a todas las vías y ninguna
-        respondió. Es el mismo "no hay nada que encontrar" que impide al
-        curado de GBIF reintentar MATCH_NONE para siempre."""
-        history = _history(("aaa", "2026-01-01"), image_url=None)
-        _write_content(tmp_path, "aaa")
-        _write_enrichment(tmp_path, "aaa")
+    def test_an_old_absent_photograph_is_not_retried(
+        self, tmp_path, monkeypatch
+    ):
+        """Pasada la ventana, sin foto se queda sin foto: reintentarlas
+        todas para siempre dejaría ganar siempre a la más nueva."""
+        history = _history(("aaa", "2026-01-01"), ("bbb", "2026-01-08"))
+        history["entries"][0]["imageUrl"] = None
+        for code in ("aaa", "bbb"):
+            _write_content(tmp_path, code)
+            _write_enrichment(tmp_path, code)
         calls = []
         self._fake_fetch(monkeypatch, ImageResult(
             url=None, asset_id=None, photographer="", attribution="a",
@@ -414,6 +417,28 @@ class TestImageBackfill:
         actions = _run(history, tmp_path)
         assert calls == []
         assert [a.kind for a in actions] == []
+
+    def test_a_recent_absent_photograph_is_retried(self, tmp_path, monkeypatch):
+        """Desde que Cornell puso sus páginas tras una pasarela anti-bots,
+        sin foto casi siempre significa "esta mañana no contestaron", no
+        "no hay nada que encontrar". Una entrada reciente se reintenta."""
+        history = _history(("aaa", "2026-09-22"), ("bbb", "2026-09-25"))
+        history["entries"][0]["imageUrl"] = None
+        for code in ("aaa", "bbb"):
+            _write_content(tmp_path, code)
+            _write_enrichment(tmp_path, code)
+        calls = []
+        self._fake_fetch(monkeypatch, ImageResult(
+            url="https://upload.wikimedia.org/x.jpg", asset_id=None,
+            photographer="A", attribution="A / Wikimedia Commons (CC BY 4.0)",
+            search_url="s",
+        ), calls)
+        actions = _run(history, tmp_path)
+        assert calls == [("aaa", 0, [])]
+        assert [(a.kind, a.ok) for a in actions] == [("image", True)]
+        assert history["entries"][0]["imageUrl"] == "https://upload.wikimedia.org/x.jpg"
+        cached = image_fetcher.load_cached_image("aaa", str(tmp_path), ordinal=0)
+        assert cached is not None and cached.photographer == "A"
 
     def test_an_older_broken_entry_is_reached(self, tmp_path, monkeypatch):
         """Con una sola ranura, reintentar las vacías dejaba ganar siempre

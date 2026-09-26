@@ -47,7 +47,7 @@
   "back_days": 14,
   "_back_days_help": "How many days back the regional pools ask eBird for observations. A longer window offers more species and loosens the dedup clamp; a shorter one keeps the picks seasonal. Ignored by global_taxonomy pools. Set via BOTD_BACK_DAYS.",
   "backfill_limit": 3,
-  "_backfill_limit_help": "Max healing actions (missed enrichments, failed GBIF lookups) retried per run. 0 disables self-healing.",
+  "_backfill_limit_help": "Max healing actions (photographs, missed enrichments, failed GBIF lookups) retried per run; photographs get half, never less than one slot. 0 disables self-healing. Raise it while several entries wait for a photograph, so they are all retried on every run instead of the newest one holding the only slot.",
 
   "feed_link": "",
   "_feed_link_help": "Base URL of your deployed site (e.g. 'https://birds.example.com/'). Every absolute URL is built from it: the feed's item links and self-link, the Open Graph tags, the Sitemap line in robots.txt and the links on 404.html. Left empty, sitemap.xml is not written and the Open Graph block is omitted rather than emitted with URLs no reader could resolve. Set via BOTD_FEED_LINK.",

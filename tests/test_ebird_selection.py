@@ -137,3 +137,37 @@ def test_select_species_is_deterministic(monkeypatch):
     first = select_species(CONFIG, [], "2026-04-13")
     second = select_species(CONFIG, [], "2026-04-13")
     assert first["speciesCode"] == second["speciesCode"]
+
+
+def test_a_reroll_is_not_the_next_species_in_the_list():
+    """Con la semilla del día, cada re-tirada caía en la especie siguiente
+    de la taxonomía: el 2026-09-25 las 51 recorrieron un solo rincón del
+    árbol sin foto para ninguna."""
+    candidates = [
+        {"speciesCode": f"sp{i:04d}", "comName": "", "sciName": "",
+         "total_count": 1}
+        for i in range(2000)
+    ]
+    order = [c["speciesCode"] for c in candidates]
+    picks, tried = [], frozenset()
+    for _ in range(10):
+        pick = ebird_client._clamp_and_pick(
+            candidates, [], 50, "2026-09-25", 0.0, "global", "x",
+            exclude=tried,
+        )["speciesCode"]
+        picks.append(order.index(pick))
+        tried |= {pick}
+    gaps = [abs(b - a) for a, b in zip(picks, picks[1:])]
+    assert max(gaps) > 100
+
+
+def test_the_first_draw_of_the_day_keeps_its_seed():
+    candidates = [
+        {"speciesCode": f"sp{i:04d}", "comName": "", "sciName": "",
+         "total_count": 1}
+        for i in range(2000)
+    ]
+    expected = ebird_client._weighted_pick(candidates, "2026-09-25", 0.0, "global")
+    assert ebird_client._clamp_and_pick(
+        candidates, [], 50, "2026-09-25", 0.0, "global", "x",
+    ) == expected

@@ -8,6 +8,8 @@ run so a long outage can't turn one cron tick into an hour of API calls.
 Healable states:
 
 - An entry whose photograph URL carries no asset id, and so renders broken.
+- A recent entry published with no photograph at all (see
+  :func:`_absent_and_recent`).
 - Missing ``{code}.enriched.json`` while an LLM is configured.
 - ``gbif_match == MATCH_ERROR`` (or a legacy cache with no taxon key and
   no recorded state): the taxon lookup failed transiently and was never
@@ -22,6 +24,7 @@ content reaches readers the same day.
 
 from __future__ import annotations
 
+import datetime
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -50,18 +53,7 @@ def _needs_image(image_url: str | None) -> bool:
     revisions published when eBird served a hero tag for a species it had
     no hero for. That is a defect: the reader gets a broken image.
 
-    An empty ``imageUrl`` is **not** healable. It means every strategy was
-    asked and none answered, which is the same authoritative "nothing to
-    find" that stops the GBIF healer from retrying ``MATCH_NONE`` for
-    ever. Retrying it instead is what a first version of this did, and
-    with one image slot per run the newest photoless entry won every time,
-    so an older broken one was never reached and a warning repeated on
-    every run with nothing behind it.
-
-    The cost, stated plainly: an entry that got no photograph because
-    Macaulay was briefly unreachable keeps none. Its plate degrades to the
-    honest gap with a search link, and a reader who wants the bird can
-    follow it.
+    An absent photograph is handled apart, by :func:`_absent_and_recent`.
     """
     if not image_url:
         return False
@@ -69,6 +61,43 @@ def _needs_image(image_url: str | None) -> bool:
         image_url.startswith(image_fetcher.CDN_BASE)
         and image_fetcher.asset_id_from_url(image_url) is None
     )
+
+
+# How long an entry published without a photograph keeps being retried.
+ABSENT_RETRY_DAYS = 7
+
+
+def _absent_and_recent(entry: dict, newest_date: str) -> bool:
+    """Whether an entry has no photograph and is young enough to retry.
+
+    An empty ``imageUrl`` used to be final, on the argument that it meant
+    every strategy had been asked and none had answered. That stopped
+    being true when Cornell put its species pages and its search API
+    behind bot gateways (2026-08-30, 2026-09-22): from then on "none
+    answered" mostly meant "the runner was turned away this morning", and
+    three of four consecutive entries went out with an empty frame that
+    nothing would ever fill.
+
+    The window keeps the reason the rule existed: with one image slot per
+    run the newest photoless entry always wins, so retrying them for ever
+    would starve everything older. Broken URLs are healed before any of
+    these, and a photoless entry stops being retried a week after it was
+    published. ``newest_date`` is the newest entry's date, not the clock,
+    so a test or a late run reads the same window.
+    """
+    if entry.get("imageUrl"):
+        return False
+    date = entry.get("date") or ""
+    if not date or not newest_date:
+        return False
+    try:
+        age = (
+            datetime.date.fromisoformat(newest_date)
+            - datetime.date.fromisoformat(date)
+        ).days
+    except ValueError:
+        return False
+    return 0 <= age < ABSENT_RETRY_DAYS
 
 
 def _heal_images(
@@ -93,13 +122,20 @@ def _heal_images(
     """
     entries = history.get("entries", [])
     actions: list[BackfillAction] = []
+    newest_date = entries[-1].get("date", "") if entries else ""
 
-    for index in range(len(entries) - 1, -1, -1):
+    # Broken first, then absent: a broken URL is a hole the reader sees
+    # as an error, an absent one is an honest gap with a search link.
+    newest_first = range(len(entries) - 1, -1, -1)
+    queue = [i for i in newest_first if _needs_image(entries[i].get("imageUrl"))]
+    queue += [i for i in newest_first if _absent_and_recent(entries[i], newest_date)]
+
+    for index in queue:
         if len(actions) >= limit:
             break
         entry = entries[index]
         code = entry.get("speciesCode")
-        if not code or not _needs_image(entry.get("imageUrl")):
+        if not code:
             continue
 
         ordinal = sum(1 for e in entries[:index] if e.get("speciesCode") == code)
@@ -116,6 +152,7 @@ def _heal_images(
             locale=locale,
             ordinal=ordinal,
             seen_asset_ids=seen,
+            scientific_name=entry.get("sciName", ""),
         )
         entry["imageUrl"] = image.url
         entry["photographer"] = image.photographer
