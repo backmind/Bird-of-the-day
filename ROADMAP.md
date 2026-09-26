@@ -99,28 +99,30 @@ it: it deserves a design decision, not a drive-by.
 
 ## Open questions
 
-**Macaulay's search API went behind an anti-bot gateway on 2026-08-30.**
-The endpoint answers `200` with an HTML challenge instead of JSON, for
-this project's own identifying user agent and for a real browser alike.
-Nothing crashes: the JSON parse fails, the strategy returns nothing, and
-the run keeps going. But that strategy is the only one that can find a
-photograph eBird has not curated, and the only one that can find a
-*different* photograph for a republication, so while the gateway stands
-the different-photo-per-republication feature is inert. A repeat now
-falls back to the curated eBird hero, which is the photograph the first
-publication already used. The failed call is now logged as a warning
-instead of being swallowed at debug level, so the outage is at least
-visible in the run log while it lasts.
+**Macaulay Library: ask Cornell for a supported access path.** Every
+Cornell host has sat behind Anubis, a proof-of-work gate against
+crawlers, since 2026-08-30 (the Macaulay search API) and 2026-09-22
+(eBird's species pages). It answers every user agent, this project's
+identifying one included, with a `200` carrying an HTML challenge, and it
+carries the Cornell Lab's own logo, so it is a decision rather than an
+accident. The code recognises the challenge and says so once per run;
+passing it by solving the proof of work is not on the table, because
+gating the site is the owner's call. Since then the photographs come from
+iNaturalist and Wikimedia Commons, Creative Commons only, and the
+different-photo-per-republication feature is inert: only the rated
+Macaulay list could find a second photograph of the same species.
 
-The consequence for a species eBird has not curated at all is that the
-entry publishes with no photograph, and that state is deliberately not
-retried (see below), so it stays that way: the plate degrades to its
-honest gap with a link to search Macaulay by hand. The open part is what
-to do if the gateway is permanent. There is no public, documented
-Macaulay search endpoint to move to, so the choices are to find a
-supported access path, to add a second photo source, or to accept that
-every photograph comes from eBird's curation and retire the republication
-feature.
+The open part is whether Cornell would grant this project access. The
+Macaulay Library licenses media by agreement, and the project's use is
+the one its embed flow already allows: non-commercial display, hot-linked,
+with visible photographer credit. The next step is to write to them,
+describe the site and its volume (one species a day, one request per
+lookup, no scraping of anything but the top of the rated list), and ask
+for a supported endpoint or an API key. If they say yes, the strategy
+comes back on its own the day the gate opens for that key. If they say
+no, the rest of this entry is the answer: Cornell's curation stays the
+first source when it answers, iNaturalist and Commons carry the rest, and
+the republication feature is retired rather than left inert.
 
 **A scheduled GitHub run is best effort, and it has stopped being close
 to the hour.** Measured on a running instance in August 2026: a `0 2`
