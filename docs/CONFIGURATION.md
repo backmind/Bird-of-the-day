@@ -133,10 +133,12 @@ is picked up by the next run's backfill pass.
 ## Backfill and self-healing
 
 Every run, before touching today's entry, the generator retries a bounded
-number of past failures. Three states are healable:
+number of past failures. Four states are healable:
 
 - a photograph whose URL carries no Macaulay asset id, which renders as a
   broken image;
+- an entry published with no photograph at all, during the seven days
+  after its publication (broken photographs are healed first);
 - an entry published without an LLM enrichment, because the endpoint was
   down or misconfigured that day;
 - an entry without a GBIF distribution map, after a transient lookup
@@ -150,12 +152,23 @@ backlog of broken images cannot starve the other two healers while it
 drains. Healed entries trigger a feed and site rebuild even on days when
 today's bird was already published.
 
-What is *not* retried matters as much. An entry with no photograph at
-all, and a taxon GBIF answers with an authoritative "no such record", are
-answers rather than outages: every strategy was asked and none had
-anything. Retrying them would spend a slot on every run for ever and
+A photoless entry that no source can fill keeps its slot on every run
+for its whole week, and the queue is newest first, so an older one
+behind it waits. Give the photographs as many slots as there can be
+photoless entries in a week you want healed together: `backfill_limit`
+`6` gives three. The retry goes through the same sources as a new entry,
+iNaturalist and Wikimedia Commons included, so an entry the runner could
+not illustrate from Cornell usually heals on the next run.
+
+What is *not* retried matters as much. A taxon GBIF answers with an
+authoritative "no such record" is an answer rather than an outage, and
+neither is an entry still without a photograph a week after it was
+published. Retrying them would spend a slot on every run for ever and
 never resolve, so each is left alone and the page degrades honestly (a
 plate with a search link in place of the photo, a plate with no map).
+The week exists because, since Cornell put its pages behind bot
+gateways, "no photograph" mostly means the runner was turned away that
+morning rather than that no source has one.
 
 ## Description policy
 

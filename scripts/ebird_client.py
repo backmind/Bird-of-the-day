@@ -469,6 +469,15 @@ def _clamp_and_pick(
 
     if not eligible:
         return None
+    # A re-roll needs its own draw. With the day's seed the uniform the
+    # draw reads is the same on every attempt, and removing the species
+    # just tried only shifts the list by one, so each re-roll landed on
+    # the next species in taxonomic order: 51 attempts on 2026-09-25 went
+    # through one corner of the tree (hyliotas, rockjumpers, Australasian
+    # robins, tits) where Cornell had no photograph for any of them. The
+    # first attempt, with nothing excluded, keeps the seed it always had.
+    if exclude:
+        salt = f"{salt}:reroll{len(exclude)}"
     return _weighted_pick(eligible, date_str, bias, salt)
 
 
