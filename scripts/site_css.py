@@ -337,6 +337,24 @@ main {
   transition: transform 1.4s cubic-bezier(.2,.6,.2,1), filter .6s ease;
 }
 .plate:hover .plate-image img { transform: scale(1.02); }
+/* A photo too narrow for the frame: whole, over a blurred copy of itself. */
+.plate-image.is-whole a {
+  position: relative;
+  display: block;
+  height: 100%;
+}
+.plate-image.is-whole a img {
+  object-fit: contain;
+  object-position: center;
+}
+.plate-image img.plate-backdrop,
+.plate:hover .plate-image img.plate-backdrop {
+  position: absolute;
+  inset: 0;
+  filter: blur(24px) saturate(.9);
+  opacity: .8;
+  transform: scale(1.15);
+}
 .plate-image .no-image {
   display: flex;
   align-items: center;

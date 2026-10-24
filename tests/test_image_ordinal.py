@@ -59,18 +59,18 @@ def _catalog(*asset_ids):
 
 def test_macaulay_skips_assets_already_published():
     session = _Session(_catalog("1", "2", "3"))
-    result = image_fetcher._try_macaulay_api(
+    results = list(image_fetcher._try_macaulay_api(
         "cometi1", session, count=5, skip=frozenset({"1", "2"})
-    )
-    assert result.asset_id == "3"
+    ))
+    assert [r.asset_id for r in results] == ["3"]
     assert "count=5" in session.urls[0]
 
 
 def test_macaulay_returns_none_when_everything_is_seen():
     session = _Session(_catalog("1"))
-    assert image_fetcher._try_macaulay_api(
+    assert list(image_fetcher._try_macaulay_api(
         "cometi1", session, skip=frozenset({"1"})
-    ) is None
+    )) == []
 
 
 def test_debut_still_prefers_the_ebird_hero(monkeypatch):
@@ -79,7 +79,7 @@ def test_debut_still_prefers_the_ebird_hero(monkeypatch):
         attribution="H / Macaulay Library", search_url="s",
     )
     monkeypatch.setattr(
-        image_fetcher, "_try_ebird_og_image", lambda *a, **k: hero
+        image_fetcher, "_try_ebird_og_image", lambda *a, **k: [hero]
     )
     monkeypatch.setattr(
         image_fetcher, "_try_macaulay_api",
@@ -96,10 +96,10 @@ def test_republication_goes_straight_to_the_rated_list(monkeypatch):
     def fake_macaulay(code, session, *, count=1, skip=frozenset()):
         calls["count"] = count
         calls["skip"] = skip
-        return ImageResult(
+        return [ImageResult(
             url="https://cdn/asset/7/1200", asset_id="7", photographer="P",
             attribution="P / Macaulay Library", search_url="s",
-        )
+        )]
 
     monkeypatch.setattr(
         image_fetcher, "_try_ebird_og_image",
@@ -124,8 +124,8 @@ def test_republication_falls_back_when_the_library_has_nothing_new(monkeypatch):
         url="https://cdn/asset/9/1200", asset_id="9", photographer="H",
         attribution="H / Macaulay Library", search_url="s",
     )
-    monkeypatch.setattr(image_fetcher, "_try_ebird_og_image", lambda *a, **k: hero)
-    monkeypatch.setattr(image_fetcher, "_try_macaulay_api", lambda *a, **k: None)
+    monkeypatch.setattr(image_fetcher, "_try_ebird_og_image", lambda *a, **k: [hero])
+    monkeypatch.setattr(image_fetcher, "_try_macaulay_api", lambda *a, **k: [])
     result = image_fetcher.fetch_image(
         "cometi1", session=_Session({}), ordinal=3,
         seen_asset_ids=frozenset({"9"}),

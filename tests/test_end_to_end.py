@@ -108,6 +108,7 @@ def test_first_run_on_empty_state_publishes(after_first_day):
     assert entry["date"] == "2026-01-01"
     assert entry["imageUrl"] == FAKE_IMAGES[bird_a["speciesCode"]].url
     assert entry["photographer"] == "Test Photographer"
+    assert (entry["imageWidth"], entry["imageHeight"]) == (900, 600)
     assert entry["attribution"] == "Test Photographer / Macaulay Library"
 
     promised_files = [

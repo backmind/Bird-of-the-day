@@ -139,6 +139,10 @@ number of past failures. Four states are healable:
   broken image;
 - an entry published with no photograph at all, during the seven days
   after its publication (broken photographs are healed first);
+- an entry published before photo sizes were recorded: its photo is
+  measured, and if it is narrower than 4:3 and a landscape photograph
+  exists now, it replaces the old one (sizes share the photographs'
+  budget, after them);
 - an entry published without an LLM enrichment, because the endpoint was
   down or misconfigured that day;
 - an entry without a GBIF distribution map, after a transient lookup

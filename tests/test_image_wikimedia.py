@@ -136,7 +136,7 @@ def test_the_generic_ebird_hero_is_not_this_bird():
     """La portada genérica trae un og:image con id. Usarlo publicaría la
     foto de otra ave: tiene que caer a la siguiente vía."""
     session = _WikiSession()
-    assert image_fetcher._try_ebird_og_image("gobfly2", session) is None
+    assert next(image_fetcher._try_ebird_og_image("gobfly2", session), None) is None
 
 
 def test_a_file_without_a_licence_is_not_published():
@@ -226,7 +226,7 @@ def test_description_and_categories_are_read_too():
         {"Categories": "Birds on stamps of Indonesia"},
     ):
         session = _WikiSession(files={_LIVE_BIRD: _file(**extra)})
-        assert image_fetcher._try_wikimedia("Microeca hemixantha", session) is None, extra
+        assert next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None) is None, extra
 
 
 def test_a_file_of_another_species_is_declined():
@@ -238,7 +238,7 @@ def test_a_file_of_another_species_is_declined():
         lead=_SKIN, others=[tomtit],
         files={_SKIN: _file(licence="CC0"), tomtit: _file()},
     )
-    assert image_fetcher._try_wikimedia("Microeca hemixantha", session) is None
+    assert next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None) is None
 
     # El mismo fichero vale si su descripción o sus categorías la nombran.
     session = _WikiSession(
@@ -246,7 +246,7 @@ def test_a_file_of_another_species_is_declined():
         files={_SKIN: _file(licence="CC0"),
                tomtit: _file(Categories="Microeca hemixantha|Birds of Tanimbar")},
     )
-    assert image_fetcher._try_wikimedia("Microeca hemixantha", session) is not None
+    assert next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None) is not None
 
 
 def test_whole_words_only():
@@ -256,7 +256,7 @@ def test_whole_words_only():
         ImageDescription="Orange-footed bird, Plate-billed toucan nearby",
         Categories="Pages with maps|Microeca hemixantha|Birds of Tanimbar",
     )})
-    assert image_fetcher._try_wikimedia("Microeca hemixantha", session) is not None
+    assert next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None) is not None
 
 
 def test_only_jpeg():
@@ -264,14 +264,14 @@ def test_only_jpeg():
         lead="Microeca hemixantha.png", others=["Microeca hemixantha.png"],
         files={"Microeca hemixantha.png": _file(mime="image/png")},
     )
-    assert image_fetcher._try_wikimedia("Microeca hemixantha", session) is None
+    assert next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None) is None
     # Ni siquiera se piden metadatos de un fichero que no es JPEG.
     assert len(session.calls) == 1
 
 
 def test_a_jpeg_name_with_another_mime_is_declined():
     session = _WikiSession(files={_LIVE_BIRD: _file(mime="image/tiff")})
-    assert image_fetcher._try_wikimedia("Microeca hemixantha", session) is None
+    assert next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None) is None
 
 
 def test_the_url_carries_no_tracking_parameters():
@@ -281,7 +281,7 @@ def test_the_url_carries_no_tracking_parameters():
         "&utm_content=thumbnail"
     )
     session = _WikiSession(files={_LIVE_BIRD: _file(thumb=thumb)})
-    result = image_fetcher._try_wikimedia("Microeca hemixantha", session)
+    result = next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None)
     assert result.url == (
         "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/68/X.jpeg/"
         "960px-X.jpeg"
@@ -295,14 +295,14 @@ def test_a_taxonomic_authority_is_not_a_photographer():
     session = _WikiSession(files={_LIVE_BIRD: _file(
         artist="Sclater, 1883", Credit="Bernard Dupont",
     )})
-    result = image_fetcher._try_wikimedia("Microeca hemixantha", session)
+    result = next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None)
     assert result.photographer == "Bernard Dupont"
     assert result.attribution == "Bernard Dupont / Wikimedia Commons (CC BY-SA 4.0)"
 
     session = _WikiSession(files={_LIVE_BIRD: _file(
         artist="(Linnaeus, 1758)", Credit="Own work",
     )})
-    result = image_fetcher._try_wikimedia("Microeca hemixantha", session)
+    result = next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None)
     assert result.photographer == ""
     assert result.attribution == "Wikimedia Commons (CC BY-SA 4.0)"
 
@@ -311,7 +311,7 @@ def test_a_link_next_to_the_name_is_dropped():
     session = _WikiSession(files={_LIVE_BIRD: _file(
         artist="JJ Harrison (https://www.jjharrison.com.au/)",
     )})
-    result = image_fetcher._try_wikimedia("Microeca hemixantha", session)
+    result = next(image_fetcher._try_wikimedia("Microeca hemixantha", session), None)
     assert result.photographer == "JJ Harrison"
 
 
@@ -358,7 +358,7 @@ def test_inaturalist_walks_the_taxon_photos_when_the_default_is_reserved():
              "url": "https://inaturalist-open-data.s3.amazonaws.com/photos/8/square.jpg"},
         ],
     )
-    result = image_fetcher._try_inaturalist("Microeca hemixantha", session)
+    result = next(image_fetcher._try_inaturalist("Microeca hemixantha", session), None)
     assert result.url == (
         "https://inaturalist-open-data.s3.amazonaws.com/photos/8/large.jpg"
     )
@@ -368,9 +368,9 @@ def test_inaturalist_walks_the_taxon_photos_when_the_default_is_reserved():
 def test_inaturalist_takes_only_an_exact_name():
     """``q`` es una búsqueda aproximada: la especie vecina no vale."""
     session = _WikiSession(inat=[_taxon(name="Microeca flavigaster")])
-    assert image_fetcher._try_inaturalist("Microeca hemixantha", session) is None
+    assert next(image_fetcher._try_inaturalist("Microeca hemixantha", session), None) is None
     session = _WikiSession(inat=[_taxon(name="microeca HEMIXANTHA")])
-    assert image_fetcher._try_inaturalist("Microeca hemixantha", session) is not None
+    assert next(image_fetcher._try_inaturalist("Microeca hemixantha", session), None) is not None
 
 
 def test_inaturalist_licence_labels():
@@ -382,7 +382,7 @@ def test_inaturalist_licence_labels():
         ("cc-by", "something unexpected", "iNaturalist (CC BY)"),
     ):
         session = _WikiSession(inat=[_taxon(licence=code, attribution=attribution)])
-        result = image_fetcher._try_inaturalist("Microeca hemixantha", session)
+        result = next(image_fetcher._try_inaturalist("Microeca hemixantha", session), None)
         assert result.attribution == expected
 
 
@@ -390,7 +390,7 @@ def test_inaturalist_url_loses_its_query_and_grows_to_large():
     session = _WikiSession(inat=[_taxon(
         url="https://inaturalist-open-data.s3.amazonaws.com/photos/42/medium.jpeg?1700000000",
     )])
-    result = image_fetcher._try_inaturalist("Microeca hemixantha", session)
+    result = next(image_fetcher._try_inaturalist("Microeca hemixantha", session), None)
     assert result.url == (
         "https://inaturalist-open-data.s3.amazonaws.com/photos/42/large.jpeg"
     )

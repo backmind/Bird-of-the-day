@@ -18,7 +18,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from scripts import esc_html as _esc, name_linker, urls
+from scripts import esc_html as _esc, image_fetcher, name_linker, urls
 
 if TYPE_CHECKING:
     from scripts.i18n import Catalog
@@ -133,6 +133,8 @@ class SiteEntry:
                                   # description_source == "ebird-foreign")
     gbif_taxon_key: int | None = None  # GBIF usageKey for the species
     distribution_map_url: str = ""     # hot-linked GBIF density map PNG URL
+    image_width: int | None = None     # photo size, when it is known
+    image_height: int | None = None
     iucn_code: str = ""                # IUCN Red List code (LC, VU, EN, etc.)
     iucn_birdlife_url: str = ""        # BirdLife factsheet URL
     enriched_prose: str = ""           # LLM-generated prose (enriched mode)
@@ -342,8 +344,18 @@ def render_plate(
     )
 
     if entry.image_url:
+        # A photo the 3:2 crop would take the bird from is shown whole, over
+        # a blurred copy of itself that fills the frame. Same URL, so the
+        # browser fetches it once.
+        whole = image_fetcher.crops_badly(entry.image_width, entry.image_height)
+        backdrop = (
+            f'<img class="plate-backdrop" src="{_esc(entry.image_url)}" '
+            f'alt="" aria-hidden="true" loading="{loading}" />'
+            if whole else ""
+        )
         image_block = (
-            f'<div class="plate-image">'
+            f'<div class="plate-image{" is-whole" if whole else ""}">'
+            f'{backdrop}'
             f'<a href="{ebird_url}"{_ext} '
             f'aria-label="{_esc(entry.common_name)} — eBird">'
             f'<img src="{_esc(entry.image_url)}" '

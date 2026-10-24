@@ -87,6 +87,8 @@ def _fake_image(asset_id: str, species_code: str) -> image_fetcher.ImageResult:
         photographer="Test Photographer",
         attribution="Test Photographer / Macaulay Library",
         search_url=image_fetcher.ml_search_url(species_code),
+        width=900,
+        height=600,
     )
 
 

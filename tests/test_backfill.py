@@ -15,12 +15,14 @@ def _history(*codes_dates, image_url=CDN_BASE + "/1/900"):
 
     A real entry always has an ``imageUrl`` key, and these tests are about
     the other two healers, so the default keeps photographs out of the
-    way. Pass a URL with no asset id to make an entry healable, or
-    ``image_url=None`` for the resolved "looked, found nothing" state.
+    way, size included. Pass a URL with no asset id to make an entry
+    healable, or ``image_url=None`` for the resolved "looked, found
+    nothing" state.
     """
     return {"entries": [
         {"speciesCode": c, "comName": c.upper(), "sciName": f"Genus {c}",
-         "date": d, "imageUrl": image_url, "photographer": "P",
+         "date": d, "imageUrl": image_url, "imageWidth": 900,
+         "imageHeight": 600, "photographer": "P",
          "attribution": "P / Macaulay Library"}
         for c, d in codes_dates
     ]}
@@ -198,7 +200,8 @@ class TestGbifBackfill:
         _write_enrichment(tmp_path, "aaa")
         history = {"entries": [
             {"speciesCode": "aaa", "comName": "AAA", "sciName": "",
-             "date": "2026-01-01", "imageUrl": CDN_BASE + "/1/900"},
+             "date": "2026-01-01", "imageUrl": CDN_BASE + "/1/900",
+             "imageWidth": 900, "imageHeight": 600},
         ]}
         with patch("scripts.backfill.distribution_map.gbif_taxon_match_ex") as m:
             with patch.dict("os.environ", {"BOTD_LLM_API_KEY": "k"}):

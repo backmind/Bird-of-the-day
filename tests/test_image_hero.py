@@ -39,12 +39,12 @@ def _page(og_image):
 
 def test_hero_without_an_asset_id_is_declined():
     session = _PageSession(_page(f"{CDN_BASE}//900"))
-    assert image_fetcher._try_ebird_og_image("vilbrf1", session) is None
+    assert next(image_fetcher._try_ebird_og_image("vilbrf1", session), None) is None
 
 
 def test_hero_with_an_asset_id_is_used():
     session = _PageSession(_page(f"{CDN_BASE}/255114031/1200"))
-    result = image_fetcher._try_ebird_og_image("cometi1", session)
+    result = next(image_fetcher._try_ebird_og_image("cometi1", session), None)
     assert result.asset_id == "255114031"
     assert result.photographer == "Fotografo"
 
@@ -57,7 +57,7 @@ def test_an_idless_hero_falls_through_to_macaulay(monkeypatch):
         attribution="R / Macaulay Library", search_url="s",
     )
     monkeypatch.setattr(
-        image_fetcher, "_try_macaulay_api", lambda *a, **k: rated
+        image_fetcher, "_try_macaulay_api", lambda *a, **k: [rated]
     )
     result = image_fetcher.fetch_image("vilbrf1", session)
     assert result.asset_id == "777"
@@ -67,7 +67,7 @@ def test_no_photo_at_all_beats_a_broken_one(monkeypatch):
     """Sin ninguna vía, la entrada sale sin foto y con enlace de búsqueda,
     que es un hueco honesto en vez de una imagen rota."""
     session = _PageSession(_page(f"{CDN_BASE}//900"))
-    monkeypatch.setattr(image_fetcher, "_try_macaulay_api", lambda *a, **k: None)
+    monkeypatch.setattr(image_fetcher, "_try_macaulay_api", lambda *a, **k: [])
     result = image_fetcher.fetch_image("vilbrf1", session)
     assert result.url is None
     assert result.search_url

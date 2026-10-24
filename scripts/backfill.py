@@ -10,6 +10,10 @@ Healable states:
 - An entry whose photograph URL carries no asset id, and so renders broken.
 - A recent entry published with no photograph at all (see
   :func:`_absent_and_recent`).
+- An entry with no recorded photo size, published before sizes were
+  recorded: it is measured, and if it is too narrow for the plate and a
+  landscape photograph now exists, it gets that one (see
+  :func:`_heal_image_sizes`).
 - Missing ``{code}.enriched.json`` while an LLM is configured.
 - ``gbif_match == MATCH_ERROR`` (or a legacy cache with no taxon key and
   no recorded state): the taxon lookup failed transiently and was never
@@ -42,7 +46,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BackfillAction:
     species_code: str
-    kind: str  # "enrichment" | "gbif" | "image"
+    kind: str  # "enrichment" | "gbif" | "image" | "image-size"
     ok: bool
 
 
@@ -138,25 +142,9 @@ def _heal_images(
         if not code:
             continue
 
-        ordinal = sum(1 for e in entries[:index] if e.get("speciesCode") == code)
-        seen = frozenset(
-            asset
-            for e in entries
-            if e.get("speciesCode") == code
-            for asset in [image_fetcher.asset_id_from_url(e.get("imageUrl"))]
-            if asset
-        )
-        image = image_fetcher.fetch_image(
-            code,
-            session=session,
-            locale=locale,
-            ordinal=ordinal,
-            seen_asset_ids=seen,
-            scientific_name=entry.get("sciName", ""),
-        )
-        entry["imageUrl"] = image.url
-        entry["photographer"] = image.photographer
-        entry["attribution"] = image.attribution
+        ordinal = _ordinal(entries, index)
+        image = _refetch(entries, index, locale, session)
+        _record(entry, image)
 
         ok = bool(image.url)
         if ok:
@@ -177,6 +165,99 @@ def _heal_images(
             "healed" if ok else "still no photograph",
         )
 
+    return actions
+
+
+def _ordinal(entries: list[dict], index: int) -> int:
+    code = entries[index].get("speciesCode")
+    return sum(1 for e in entries[:index] if e.get("speciesCode") == code)
+
+
+def _refetch(
+    entries: list[dict], index: int, locale: str, session: requests.Session | None
+) -> image_fetcher.ImageResult:
+    """A fresh photograph for one publication, skipping those already shown."""
+    entry = entries[index]
+    code = entry.get("speciesCode")
+    seen = frozenset(
+        asset
+        for e in entries
+        if e.get("speciesCode") == code
+        for asset in [image_fetcher.asset_id_from_url(e.get("imageUrl"))]
+        if asset
+    )
+    return image_fetcher.fetch_image(
+        code,
+        session=session,
+        locale=locale,
+        ordinal=_ordinal(entries, index),
+        seen_asset_ids=seen,
+        scientific_name=entry.get("sciName", ""),
+    )
+
+
+def _record(entry: dict, image: image_fetcher.ImageResult) -> None:
+    entry["imageUrl"] = image.url
+    entry["imageWidth"] = image.width
+    entry["imageHeight"] = image.height
+    entry["photographer"] = image.photographer
+    entry["attribution"] = image.attribution
+
+
+def _heal_image_sizes(
+    history: dict,
+    cache_dir: str,
+    locale: str,
+    session: requests.Session | None,
+    limit: int,
+) -> list[BackfillAction]:
+    """Measure the photographs published before sizes were recorded.
+
+    An entry whose photo is too narrow for the 3:2 plate is offered the
+    same choice a new entry gets: if a landscape photograph exists now it
+    replaces the old one, credit included. Otherwise the old one stays
+    and the plate shows it whole. Either way the size is written to the
+    history entry and to the per-publication cache, which is what takes
+    the entry out of this queue. A photo that cannot be measured is left
+    for the next run.
+    """
+    entries = history.get("entries", [])
+    actions: list[BackfillAction] = []
+    sess = session or image_fetcher.new_session()
+    for index in range(len(entries) - 1, -1, -1):
+        if len(actions) >= limit:
+            break
+        entry = entries[index]
+        code = entry.get("speciesCode")
+        if not code or not entry.get("imageUrl") or entry.get("imageWidth"):
+            continue
+        size = image_fetcher.measure(entry["imageUrl"], sess)
+        if size is None:
+            actions.append(BackfillAction(code, "image-size", False))
+            continue
+        ordinal = _ordinal(entries, index)
+        image = image_fetcher.load_cached_image(code, cache_dir, ordinal) or (
+            image_fetcher.ImageResult(
+                url=entry["imageUrl"],
+                asset_id=image_fetcher.asset_id_from_url(entry["imageUrl"]),
+                photographer=entry.get("photographer", ""),
+                attribution=entry.get("attribution", ""),
+                search_url=image_fetcher.ml_search_url(code),
+            )
+        )
+        image.url = entry["imageUrl"]
+        image.width, image.height = size
+        if image_fetcher.crops_badly(*size):
+            fresh = _refetch(entries, index, locale, sess)
+            if fresh.url and not image_fetcher.crops_badly(fresh.width, fresh.height):
+                logger.info(
+                    "backfill: %s on %s gets %s instead of a %sx%s photo",
+                    code, entry.get("date"), fresh.url, *size,
+                )
+                image = fresh
+        _record(entry, image)
+        image_fetcher.save_cached_image(code, image, cache_dir, ordinal=ordinal)
+        actions.append(BackfillAction(code, "image-size", True))
     return actions
 
 
@@ -216,13 +297,14 @@ def run_backfill(
     #
     # ``ebird_locale`` is the resolved locale the caller has already
     # written back into the config, the same one the daily fetch uses.
+    locale = config.get("ebird_locale") or "en"
+    image_budget = max(1, limit // 2)
+    actions.extend(_heal_images(history, cache_dir, locale, session, image_budget))
+    # Sizes share the photographs' budget and come after them: an entry
+    # with a broken or missing photo is worse off than a narrow one.
     actions.extend(
-        _heal_images(
-            history,
-            cache_dir,
-            config.get("ebird_locale") or "en",
-            session,
-            max(1, limit // 2),
+        _heal_image_sizes(
+            history, cache_dir, locale, session, image_budget - len(actions)
         )
     )
     if len(actions) >= limit:

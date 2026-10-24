@@ -333,6 +333,8 @@ def _image_for(raw: dict, code: str, ordinal: int) -> image_fetcher.ImageResult:
     """
     cached = image_fetcher.load_cached_image(code, str(CACHE_DIR), ordinal=ordinal)
     if cached is not None:
+        if cached.width is None:
+            cached.width, cached.height = raw.get("imageWidth"), raw.get("imageHeight")
         return cached
     return image_fetcher.ImageResult(
         url=raw.get("imageUrl"),
@@ -342,6 +344,8 @@ def _image_for(raw: dict, code: str, ordinal: int) -> image_fetcher.ImageResult:
             "attribution", "Macaulay Library / Cornell Lab of Ornithology"
         ),
         search_url=image_fetcher.ml_search_url(code),
+        width=raw.get("imageWidth"),
+        height=raw.get("imageHeight"),
     )
 
 
@@ -395,6 +399,8 @@ def _build_site_entries(
                 scientific_name=raw.get("sciName", ""),
                 date=raw.get("date", ""),
                 image_url=image.url,
+                image_width=image.width,
+                image_height=image.height,
                 photographer=image.photographer,
                 attribution=image.attribution,
                 description=effective_description,
@@ -1047,6 +1053,8 @@ def main() -> None:
                 "sciName": scientific_name,
                 "date": date_str,
                 "imageUrl": image.url,
+                "imageWidth": image.width,
+                "imageHeight": image.height,
                 "photographer": image.photographer,
                 "attribution": image.attribution,
             }

@@ -60,8 +60,8 @@ def test_macaulay_names_the_gate_once_per_run(caplog):
     _fresh()
     session = _Session()
     with caplog.at_level(logging.DEBUG, logger="scripts.image_fetcher"):
-        assert image_fetcher._try_macaulay_api("eucdov", session) is None
-        assert image_fetcher._try_macaulay_api("gobfly2", session) is None
+        assert next(image_fetcher._try_macaulay_api("eucdov", session), None) is None
+        assert next(image_fetcher._try_macaulay_api("gobfly2", session), None) is None
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "search.macaulaylibrary.org" in warnings[0].getMessage()
@@ -75,7 +75,7 @@ def test_macaulay_names_the_gate_once_per_run(caplog):
 def test_ebird_hero_names_the_gate_instead_of_a_generic_page(caplog):
     _fresh()
     with caplog.at_level(logging.DEBUG, logger="scripts.image_fetcher"):
-        assert image_fetcher._try_ebird_og_image("eucdov", _Session()) is None
+        assert next(image_fetcher._try_ebird_og_image("eucdov", _Session()), None) is None
     assert "generic page" not in caplog.text
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert [r for r in warnings if "ebird.org" in r.getMessage()]
@@ -85,10 +85,10 @@ def test_each_host_is_reported_on_its_own(caplog):
     _fresh()
     session = _Session()
     with caplog.at_level(logging.WARNING, logger="scripts.image_fetcher"):
-        image_fetcher._try_ebird_og_image("eucdov", session)
-        image_fetcher._try_macaulay_api("eucdov", session)
-        image_fetcher._try_ebird_og_image("gobfly2", session)
-        image_fetcher._try_macaulay_api("gobfly2", session)
+        next(image_fetcher._try_ebird_og_image("eucdov", session), None)
+        next(image_fetcher._try_macaulay_api("eucdov", session), None)
+        next(image_fetcher._try_ebird_og_image("gobfly2", session), None)
+        next(image_fetcher._try_macaulay_api("gobfly2", session), None)
     hosts = sorted(r.getMessage().split(" ")[0] for r in caplog.records)
     assert hosts == ["ebird.org", "search.macaulaylibrary.org"]
 
@@ -104,5 +104,5 @@ def test_a_real_json_error_is_still_reported_as_such(caplog):
     _fresh()
     session = _Session(text="<html><title>502 Bad Gateway</title></html>")
     with caplog.at_level(logging.WARNING, logger="scripts.image_fetcher"):
-        assert image_fetcher._try_macaulay_api("eucdov", session) is None
+        assert next(image_fetcher._try_macaulay_api("eucdov", session), None) is None
     assert "ML search API unavailable for eucdov" in caplog.text

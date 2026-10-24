@@ -33,7 +33,14 @@ Daily run (GitHub Actions cron 07:17 UTC, or the container's own 07:00)
   │     has kept both of its hosts behind a proof-of-work bot gate
   │     (Anubis) since 2026-08-30 (Macaulay) and 2026-09-22 (eBird);
   │     the gate is recognised and reported once per run, never
-  │     passed, so today the last two sources are the ones that answer
+  │     passed, so today the last two sources are the ones that answer.
+  │     The plate is 3:2, so each source offers several candidates and
+  │     the first one at least 4:3 wide wins, from whichever source;
+  │     sizes come from iNaturalist and Commons, and Cornell's are read
+  │     from the JPEG header. Only when no source has one is a narrower
+  │     photo published, and the plate shows it whole over a blurred
+  │     copy of itself. The size goes to history as imageWidth and
+  │     imageHeight
   ├─ 4. Description chain in the configured language:
   │     eBird Merlin → Wikipedia → policy-driven fallback
   ├─ 4b. LLM enrichment (when an LLM endpoint is configured):

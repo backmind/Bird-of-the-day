@@ -10,6 +10,10 @@ Four live strategies + a fallback:
      name: a photograph of a live bird from that article, with author and
      licence from the file page.
   5. Fallback: link to ML Search without an inline image.
+
+Each strategy yields candidates in its own order of preference, and
+:func:`fetch_image` takes the first one whose shape suits the 3:2 plate
+(see :func:`crops_badly`), falling back to the first one of any shape.
 """
 
 from __future__ import annotations
@@ -17,12 +21,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from bs4 import BeautifulSoup
+from PIL import ImageFile
 
 from scripts import http_client
 
@@ -45,6 +51,10 @@ class ImageResult:
     photographer: str
     attribution: str
     search_url: str
+    # Pixel size, or the original's when the source only states that (the
+    # shape is what matters). None when nobody could tell.
+    width: int | None = None
+    height: int | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -57,7 +67,57 @@ class ImageResult:
             photographer=data.get("photographer", ""),
             attribution=data.get("attribution", ""),
             search_url=data.get("search_url", ""),
+            width=data.get("width"),
+            height=data.get("height"),
         )
+
+
+# The plate is 3:2. A 4:3 photograph loses 11 % of its height to the crop,
+# which leaves the bird alone; anything narrower starts taking heads off
+# (blawoo1, 816x1024, 2026-10-23).
+LANDSCAPE_MIN_RATIO = 1.3
+
+
+def crops_badly(width: int | None, height: int | None) -> bool:
+    """Whether a photograph of this size is known to lose too much to the plate.
+
+    Unknown sizes are given the benefit of the doubt: they are cropped as
+    every photograph was before sizes were recorded.
+    """
+    return bool(width and height) and width / height < LANDSCAPE_MIN_RATIO
+
+
+# Enough for the SOF marker of any JPEG, EXIF and embedded thumbnail included.
+MEASURE_MAX_BYTES = 512 * 1024
+
+
+def measure(url: str, session: requests.Session) -> tuple[int, int] | None:
+    """The pixel size of the image at ``url``, read from its first bytes.
+
+    For sources that do not state a size (the Macaulay CDN). Streams the
+    file and stops as soon as Pillow has parsed the header, so a photo
+    costs a few kilobytes rather than its whole weight.
+    """
+    parser = ImageFile.Parser()
+    read = 0
+    try:
+        resp = session.get(url, timeout=REQUEST_TIMEOUT, stream=True)
+        try:
+            resp.raise_for_status()
+            for chunk in resp.iter_content(16 * 1024):
+                parser.feed(chunk)
+                if parser.image is not None:
+                    return parser.image.size
+                read += len(chunk)
+                if read >= MEASURE_MAX_BYTES:
+                    break
+        finally:
+            resp.close()
+    except (requests.RequestException, OSError, ValueError, AttributeError) as e:
+        logger.info("could not measure %s: %s", url, e)
+        return None
+    logger.info("could not measure %s: no image header in %d bytes", url, read)
+    return None
 
 
 DEFAULT_ACCEPT_LANGUAGE = "en-US,en;q=0.9"
@@ -145,15 +205,16 @@ def _try_macaulay_api(
     *,
     count: int = 1,
     skip: frozenset[str] = frozenset(),
-) -> ImageResult | None:
+) -> Iterator[ImageResult]:
     """Strategy 1: Macaulay Library Search internal JSON API.
 
     Confirmed shape: ``{"results": {"count": N, "content": [...], "nextCursorMark": ...}}``.
     Each item has ``assetId``, ``catalogId``, ``userDisplayName``, ``rating``, etc.
 
-    ``skip`` holds the assets this species has already been published
-    with, so a republication can walk down the rating order until it finds
-    a photograph the reader has not seen.
+    Yields the first ``count`` assets in rating order. ``skip`` holds the
+    assets this species has already been published with, so a
+    republication can walk down the list until it finds a photograph the
+    reader has not seen. No size is stated; :func:`fetch_image` measures.
     """
     url = (
         f"{ML_SEARCH_BASE}/api/v1/search"
@@ -189,14 +250,13 @@ def _try_macaulay_api(
         if not asset_id or asset_id in skip:
             continue
         photographer = (item.get("userDisplayName") or "").strip()
-        return ImageResult(
+        yield ImageResult(
             url=_cdn_url(asset_id),
             asset_id=asset_id,
             photographer=photographer,
             attribution=_attribution(photographer),
             search_url=ml_search_url(species_code),
         )
-    return None
 
 
 _OG_ASSET_RE = re.compile(r"/asset/(\d+)")
@@ -250,7 +310,7 @@ def asset_id_from_url(url: str | None) -> str | None:
 
 def _try_ebird_og_image(
     species_code: str, session: requests.Session, locale: str = "en"
-) -> ImageResult | None:
+) -> Iterator[ImageResult]:
     """Strategy 2: og:image + og:image:alt from the eBird species page.
 
     Format observed:
@@ -261,9 +321,9 @@ def _try_ebird_og_image(
     the alt tag carries the Spanish common name, with ``locale=en`` the
     English one. Either way the asset id is the same.
 
-    Returns ``None`` when the page cannot be fetched, when it carries no
-    ``og:image``, and when the tag it carries has no asset id in it. That
-    last case is not theoretical: eBird emits the tag for species it has
+    Yields the single curated hero, or nothing when the page cannot be
+    fetched, when it carries no ``og:image``, and when the tag it carries
+    has no asset id in it. That last case is not theoretical: eBird emits the tag for species it has
     no curated hero for, with the id left out.
     """
     url = f"https://ebird.org/species/{species_code}"
@@ -312,7 +372,7 @@ def _try_ebird_og_image(
         if " - " in alt:
             photographer = alt.rsplit(" - ", 1)[-1].strip()
 
-    return ImageResult(
+    yield ImageResult(
         url=_cdn_url(asset_id),
         asset_id=asset_id,
         photographer=photographer,
@@ -370,14 +430,16 @@ def _inat_author(photo: dict) -> str:
 
 def _try_inaturalist(
     scientific_name: str, session: requests.Session
-) -> ImageResult | None:
-    """Strategy 3: the default photo of the iNaturalist taxon.
+) -> Iterator[ImageResult]:
+    """Strategy 3: the photos of the iNaturalist taxon, default photo first.
 
     One call to the public, documented, unauthenticated taxa endpoint.
     The default photo is the one the community chose to represent the
     taxon, taken from observations, which are overwhelmingly photographs
     of live birds rather than of a museum drawer: Commons gave this site
-    a skin from Naturalis for gobfly2 on 2026-09-25.
+    a skin from Naturalis for gobfly2 on 2026-09-25. The rest of the
+    taxon's curated photos follow in the community's order, fetched only
+    if the caller asks for more than the default.
 
     Only an exact match on the scientific name is taken: ``q`` is a
     fuzzy search, and a near neighbour's photograph under this bird's
@@ -386,12 +448,9 @@ def _try_inaturalist(
     The rest are all Creative Commons, including the NC variants, which
     this project can use because it is non-commercial (README). None of
     them is modified here: the ``large`` rendition is iNaturalist's own.
-
-    ``medium`` is 500 px on the long side and ``large`` 1024; the
-    renditions differ only in that path segment.
     """
     if not scientific_name:
-        return None
+        return
     try:
         resp = session.get(INATURALIST_TAXA_API, params={
             "q": scientific_name, "rank": "species", "per_page": "10",
@@ -400,7 +459,7 @@ def _try_inaturalist(
         results = resp.json().get("results", []) or []
     except (requests.RequestException, ValueError, AttributeError) as e:
         logger.warning("iNaturalist lookup failed for %s: %s", scientific_name, e)
-        return None
+        return
 
     wanted = scientific_name.strip().casefold()
     taxon = next(
@@ -413,18 +472,32 @@ def _try_inaturalist(
     )
     if taxon is None:
         logger.info("iNaturalist has no taxon named %s", scientific_name)
-        return None
-    photo = taxon.get("default_photo") or {}
-    if not (photo.get("license_code") or "").strip():
+        return
+    default = taxon.get("default_photo") or {}
+    result = _inat_result(default)
+    if result is not None:
+        yield result
+    else:
         # The default photo of Stercorarius maccormicki and of Microeca
         # hemixantha was "all rights reserved" on 2026-09-25, which left
         # both to Commons. The taxon usually has other photos curated
-        # alongside it; the first one with a licence will do.
+        # alongside it.
         logger.info(
             "iNaturalist default photo for %s is all rights reserved",
             scientific_name,
         )
-        photo = _licensed_taxon_photo(taxon.get("id"), session) or {}
+    for photo in _licensed_taxon_photos(taxon.get("id"), session):
+        if default.get("id") is None or photo.get("id") != default.get("id"):
+            yield _inat_result(photo)
+
+
+def _inat_result(photo: dict) -> ImageResult | None:
+    """A licensed iNaturalist photo as a candidate, or ``None`` if unusable.
+
+    ``medium`` is 500 px on the long side and ``large`` 1024; the
+    renditions differ only in that path segment. ``original_dimensions``
+    is the original's size, which has the shape of every rendition.
+    """
     code = (photo.get("license_code") or "").strip()
     url = photo.get("medium_url") or photo.get("url") or ""
     if not url or not code:
@@ -434,26 +507,29 @@ def _try_inaturalist(
     author = _inat_author(photo)
     licence = _inat_licence(code)
     credit = " / ".join(x for x in (author, "iNaturalist") if x)
+    size = photo.get("original_dimensions") or {}
     return ImageResult(
         url=url,
         asset_id=None,
         photographer=author,
         attribution=f"{credit} ({licence})",
         search_url="",
+        width=size.get("width"),
+        height=size.get("height"),
     )
 
 
-def _licensed_taxon_photo(
+def _licensed_taxon_photos(
     taxon_id: int | str | None, session: requests.Session
-) -> dict | None:
-    """The first licensed photo among a taxon's curated photos.
+) -> list[dict]:
+    """The licensed photos among a taxon's curated photos, in order.
 
     The search endpoint only carries the default photo; the taxon's own
     record (``/v1/taxa/{id}``) lists every photo curated for it, in the
     order the community ranked them, under ``taxon_photos``.
     """
     if not taxon_id:
-        return None
+        return []
     try:
         resp = session.get(
             f"{INATURALIST_TAXA_API}/{taxon_id}", timeout=REQUEST_TIMEOUT
@@ -462,16 +538,18 @@ def _licensed_taxon_photo(
         results = resp.json().get("results", []) or []
     except (requests.RequestException, ValueError, AttributeError) as e:
         logger.warning("iNaturalist taxon %s failed: %s", taxon_id, e)
-        return None
-    for taxon in results:
-        for entry in taxon.get("taxon_photos") or []:
-            photo = (entry or {}).get("photo") or {}
-            if (photo.get("license_code") or "").strip() and (
-                photo.get("medium_url") or photo.get("url")
-            ):
-                return photo
-    logger.info("iNaturalist has no licensed photo for taxon %s", taxon_id)
-    return None
+        return []
+    photos = [
+        photo
+        for taxon in results
+        for entry in taxon.get("taxon_photos") or []
+        for photo in [(entry or {}).get("photo") or {}]
+        if (photo.get("license_code") or "").strip()
+        and (photo.get("medium_url") or photo.get("url"))
+    ]
+    if not photos:
+        logger.info("iNaturalist has no licensed photo for taxon %s", taxon_id)
+    return photos
 
 
 WIKIPEDIA_API = "https://{lang}.wikipedia.org/w/api.php"
@@ -606,8 +684,8 @@ def _try_wikimedia(
     scientific_name: str,
     session: requests.Session,
     size: int = DEFAULT_SIZE,
-) -> ImageResult | None:
-    """Strategy 4: a photograph from the species' Wikipedia article.
+) -> Iterator[ImageResult]:
+    """Strategy 4: photographs from the species' Wikipedia article.
 
     Two MediaWiki API calls, both documented and unauthenticated. The
     first resolves the scientific name (redirects followed, as the
@@ -620,15 +698,16 @@ def _try_wikimedia(
     Candidates are tried lead image first. A file is declined when it is
     not a JPEG (range maps and status icons are SVG or PNG), when it has
     no licence to show, or when its name, description or categories say
-    it is a specimen, an egg, a drawing, a map or a stamp. The first one
-    left is published, without the tracking parameters the API appends.
+    it is a specimen, an egg, a drawing, a map or a stamp. The ones left
+    are yielded in that order, with the size of the thumbnail and without
+    the tracking parameters the API appends.
 
     This path does not go through Cornell at all, so it keeps answering
     when eBird and Macaulay put their pages behind a bot gateway, which
     is what they did on 2026-08-30 and 2026-09-22.
     """
     if not scientific_name:
-        return None
+        return
     for lang in WIKIMEDIA_LANGUAGES:
         api = WIKIPEDIA_API.format(lang=lang)
         try:
@@ -666,7 +745,7 @@ def _try_wikimedia(
             resp = session.get(api, params={
                 "action": "query", "format": "json", "formatversion": "2",
                 "titles": "|".join(f"File:{n}" for n in candidates),
-                "prop": "imageinfo", "iiprop": "url|mime|extmetadata",
+                "prop": "imageinfo", "iiprop": "url|mime|size|extmetadata",
                 "iiextmetadatafilter": (
                     "Artist|Credit|LicenseShortName|ImageDescription|Categories"
                 ),
@@ -712,14 +791,16 @@ def _try_wikimedia(
                 continue
             author = _commons_author(meta)
             credit = " / ".join(x for x in (author, "Wikimedia Commons") if x)
-            return ImageResult(
+            thumb = bool(info.get("thumburl"))
+            yield ImageResult(
                 url=_without_query(url),
                 asset_id=None,
                 photographer=author,
                 attribution=f"{credit} ({licence})",
                 search_url="",
+                width=info.get("thumbwidth" if thumb else "width"),
+                height=info.get("thumbheight" if thumb else "height"),
             )
-    return None
 
 
 def _fallback(species_code: str) -> ImageResult:
@@ -771,43 +852,65 @@ def fetch_image(
     curation. That picked technically beautiful but unfamiliar shots
     instead of the photo readers expected to see.
 
+    **Shape.** Each strategy offers several candidates, and the first one
+    the 3:2 plate does not crop badly (:func:`crops_badly`) wins, even if
+    it comes from a later strategy. Only when no source has one is the
+    first candidate of any shape published, and the plate then shows it
+    whole. A candidate whose size is unknown and cannot be measured is
+    taken as it comes.
+
     ``locale`` is forwarded to the eBird species-page strategy. The
     Macaulay API strategy doesn't take a locale (asset metadata is
     language-agnostic).
 
     ``ordinal`` is how many times this species has been published before.
-    On a republication the curated eBird hero is skipped: it is a single
-    fixed photograph, and showing it twice is exactly what the ordinal
-    exists to avoid. The rated Macaulay list is walked instead, past every
-    asset in ``seen_asset_ids``. If the library has nothing new the normal
-    order runs anyway: repeating a photograph beats publishing without one.
+    On a republication the rated Macaulay list is walked first, past every
+    asset in ``seen_asset_ids``: the curated eBird hero is a single fixed
+    photograph, and showing it twice is exactly what the ordinal exists
+    to avoid. A photograph already seen is published only when nothing
+    else is found: repeating a photograph beats publishing without one.
     """
     sess = session or new_session()
-    # A debut normally has nothing to skip, so the ordinal alone used to
-    # decide this. The backfill breaks that: it re-fetches the photograph
-    # of an entry published long ago, and the species may have come round
-    # again since, with a photograph the reader has already seen. Whenever
-    # there is something to skip, walk the rated list.
-    if ordinal or seen_asset_ids:
-        result = _try_macaulay_api(
-            species_code, sess,
-            count=ordinal + MACAULAY_LOOKAHEAD,
-            skip=seen_asset_ids,
+
+    def candidates() -> Iterator[ImageResult]:
+        # A debut normally has nothing to skip, so the ordinal alone used
+        # to decide this. The backfill breaks that: it re-fetches the
+        # photograph of an entry published long ago, and the species may
+        # have come round again since, with a photograph the reader has
+        # already seen. Whenever there is something to skip, walk the
+        # rated list first.
+        if ordinal or seen_asset_ids:
+            yield from _try_macaulay_api(
+                species_code, sess,
+                count=ordinal + MACAULAY_LOOKAHEAD,
+                skip=seen_asset_ids,
+            )
+        yield from _try_ebird_og_image(species_code, sess, locale=locale)
+        yield from _try_macaulay_api(species_code, sess, count=MACAULAY_LOOKAHEAD)
+        yield from _try_inaturalist(scientific_name, sess)
+        yield from _try_wikimedia(scientific_name, sess)
+
+    first: ImageResult | None = None
+    repeat: ImageResult | None = None
+    tried: set[str] = set()
+    for result in candidates():
+        if result is None or not result.url or result.url in tried:
+            continue
+        tried.add(result.url)
+        result.search_url = result.search_url or ml_search_url(species_code)
+        if result.asset_id and result.asset_id in seen_asset_ids:
+            repeat = repeat or result
+            continue
+        if result.width is None or result.height is None:
+            result.width, result.height = measure(result.url, sess) or (None, None)
+        if not crops_badly(result.width, result.height):
+            return result
+        logger.info(
+            "photo %s is %sx%s, too narrow for the plate; trying the next",
+            result.url, result.width, result.height,
         )
-        if result is not None:
-            return result
-    result = _try_ebird_og_image(species_code, sess, locale=locale)
-    if result is not None:
-        return result
-    result = _try_macaulay_api(species_code, sess)
-    if result is not None:
-        return result
-    for strategy in (_try_inaturalist, _try_wikimedia):
-        result = strategy(scientific_name, sess)
-        if result is not None:
-            result.search_url = ml_search_url(species_code)
-            return result
-    return _fallback(species_code)
+        first = first or result
+    return first or repeat or _fallback(species_code)
 
 
 def image_cache_path(
