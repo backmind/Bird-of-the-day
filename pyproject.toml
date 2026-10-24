@@ -7,7 +7,7 @@ dependencies = [
     "requests>=2.31,<3",
     "beautifulsoup4>=4.12,<5",
     "langid>=1.1.6,<2",
-    "Pillow>=12.2,<13",
+    "Pillow>=13,<14",
 ]
 
 [tool.hatch.build.targets.wheel]
