@@ -307,7 +307,8 @@ def install(
         image_fetcher,
         "fetch_image",
         lambda species_code, session=None, locale="en", *, ordinal=0,
-        seen_asset_ids=frozenset(), scientific_name="": FAKE_IMAGES[species_code],
+        seen_asset_ids=frozenset(), seen_urls=frozenset(), scientific_name="":
+            FAKE_IMAGES[species_code],
     )
 
     monkeypatch.setattr(

@@ -277,5 +277,62 @@ def test_an_old_landscape_photo_only_gets_its_size(tmp_path, monkeypatch):
 def test_an_unmeasurable_old_photo_waits_for_the_next_run(tmp_path, monkeypatch):
     history = _old_history("https://x/old.jpg")
     actions = _heal(history, tmp_path, monkeypatch, None, _FRESH)
-    assert [(a.kind, a.ok) for a in actions] == [("image-size", False)]
+    # Sin gastar cupo: una foto que ya no existe no puede bloquear la cola.
+    assert actions == []
     assert "imageWidth" not in history["entries"][0]
+
+
+# --- Lo que encontró la revisión -------------------------------------------
+
+def test_the_same_photo_handed_back_is_not_a_replacement(tmp_path, monkeypatch):
+    """Sin nada nuevo, fetch_image devuelve la misma foto, sin medir: el
+    sanador no debe borrar el tamaño que acaba de leer."""
+    history = _old_history("https://x/old.jpg")
+    same = ImageResult(url="https://x/old.jpg", asset_id=None, photographer="Old",
+                       attribution="Old", search_url="s")
+    _heal(history, tmp_path, monkeypatch, (816, 1024), same)
+    entry = history["entries"][0]
+    assert (entry["imageWidth"], entry["imageHeight"]) == (816, 1024)
+
+
+def test_an_unmeasured_photo_does_not_replace_a_known_narrow_one(tmp_path, monkeypatch):
+    history = _old_history("https://x/old.jpg")
+    unknown = ImageResult(url="https://x/other.jpg", asset_id="5", photographer="U",
+                          attribution="U", search_url="s")
+    _heal(history, tmp_path, monkeypatch, (816, 1024), unknown)
+    assert history["entries"][0]["imageUrl"] == "https://x/old.jpg"
+
+
+def test_an_unmeasurable_photo_does_not_starve_older_entries(tmp_path, monkeypatch):
+    from scripts import backfill
+
+    history = {"entries": [
+        {"speciesCode": "old", "sciName": "A b", "date": "2026-10-01",
+         "imageUrl": "https://x/fine.jpg", "photographer": "", "attribution": ""},
+        {"speciesCode": "new", "sciName": "C d", "date": "2026-10-02",
+         "imageUrl": "https://x/gone.jpg", "photographer": "", "attribution": ""},
+    ]}
+    sizes = {"https://x/fine.jpg": (900, 600), "https://x/gone.jpg": None}
+    monkeypatch.setattr(image_fetcher, "measure", lambda url, s: sizes[url])
+    actions = backfill._heal_image_sizes(history, str(tmp_path), "es", object(), 1)
+    assert [a.species_code for a in actions] == ["old"]
+    assert history["entries"][0]["imageWidth"] == 900
+
+
+def test_a_republication_does_not_repeat_the_debut_inat_photo():
+    """Sin asset id, una foto de iNaturalist solo se reconoce por su URL."""
+    debut = "https://inaturalist-open-data.s3.amazonaws.com/photos/1/large.jpg"
+    session = _Session(_photo(1, 2048, 1365), [_photo(2, 2048, 1365)])
+    result = image_fetcher.fetch_image(
+        "blawoo1", session, ordinal=1, seen_urls=frozenset({debut}),
+        scientific_name="Dryocopus martius",
+    )
+    assert "/2/large.jpg" in result.url
+
+
+def test_measure_honours_the_exif_rotation():
+    buf = io.BytesIO()
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    Image.new("RGB", (1600, 1200)).save(buf, "JPEG", exif=exif.tobytes())
+    assert image_fetcher.measure("u", _StreamSession(buf.getvalue())) == (1200, 1600)

@@ -28,7 +28,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from bs4 import BeautifulSoup
-from PIL import ImageFile
+from PIL import Image, ImageFile
 
 from scripts import http_client
 
@@ -107,13 +107,20 @@ def measure(url: str, session: requests.Session) -> tuple[int, int] | None:
             for chunk in resp.iter_content(16 * 1024):
                 parser.feed(chunk)
                 if parser.image is not None:
-                    return parser.image.size
+                    width, height = parser.image.size
+                    # EXIF orientations 5 to 8 turn the picture a quarter.
+                    if parser.image.getexif().get(0x0112) in (5, 6, 7, 8):
+                        return height, width
+                    return width, height
                 read += len(chunk)
                 if read >= MEASURE_MAX_BYTES:
                     break
         finally:
             resp.close()
-    except (requests.RequestException, OSError, ValueError, AttributeError) as e:
+    except (
+        requests.RequestException, OSError, ValueError, AttributeError,
+        Image.DecompressionBombError,
+    ) as e:
         logger.info("could not measure %s: %s", url, e)
         return None
     logger.info("could not measure %s: no image header in %d bytes", url, read)
@@ -820,6 +827,7 @@ def fetch_image(
     *,
     ordinal: int = 0,
     seen_asset_ids: frozenset[str] = frozenset(),
+    seen_urls: frozenset[str] = frozenset(),
     scientific_name: str = "",
 ) -> ImageResult:
     """Fetch the species image, prioritising eBird's curated hero.
@@ -867,8 +875,10 @@ def fetch_image(
     On a republication the rated Macaulay list is walked first, past every
     asset in ``seen_asset_ids``: the curated eBird hero is a single fixed
     photograph, and showing it twice is exactly what the ordinal exists
-    to avoid. A photograph already seen is published only when nothing
-    else is found: repeating a photograph beats publishing without one.
+    to avoid. ``seen_urls`` holds the URLs already published, which is
+    how an iNaturalist or Commons photo, with no asset id, is recognised.
+    A photograph already seen is published only when nothing else is
+    found: repeating a photograph beats publishing without one.
     """
     sess = session or new_session()
 
@@ -898,7 +908,9 @@ def fetch_image(
             continue
         tried.add(result.url)
         result.search_url = result.search_url or ml_search_url(species_code)
-        if result.asset_id and result.asset_id in seen_asset_ids:
+        if result.url in seen_urls or (
+            result.asset_id and result.asset_id in seen_asset_ids
+        ):
             repeat = repeat or result
             continue
         if result.width is None or result.height is None:
@@ -910,6 +922,8 @@ def fetch_image(
             result.url, result.width, result.height,
         )
         first = first or result
+    if first is None and repeat is not None and repeat.width is None:
+        repeat.width, repeat.height = measure(repeat.url, sess) or (None, None)
     return first or repeat or _fallback(species_code)
 
 

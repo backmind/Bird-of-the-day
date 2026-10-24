@@ -324,6 +324,19 @@ def _seen_asset_ids(raw_entries: list[dict], species_code: str) -> frozenset[str
     return frozenset(i for i in ids if i)
 
 
+def _seen_urls(raw_entries: list[dict], species_code: str) -> frozenset[str]:
+    """Photo URLs this species has already been published with.
+
+    The only record of an iNaturalist or Commons photo, which has no
+    asset id.
+    """
+    return frozenset(
+        e["imageUrl"]
+        for e in raw_entries
+        if e.get("speciesCode") == species_code and e.get("imageUrl")
+    )
+
+
 def _image_for(raw: dict, code: str, ordinal: int) -> image_fetcher.ImageResult:
     """The photograph a history entry was published with.
 
@@ -726,6 +739,7 @@ def _select_and_fetch(
                 species_code, session=session, locale=ebird_locale,
                 ordinal=ordinal,
                 seen_asset_ids=_seen_asset_ids(history_entries, species_code),
+                seen_urls=_seen_urls(history_entries, species_code),
                 scientific_name=species["sciName"],
             )
             image_fetcher.save_cached_image(

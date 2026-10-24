@@ -192,6 +192,11 @@ def _refetch(
         locale=locale,
         ordinal=_ordinal(entries, index),
         seen_asset_ids=seen,
+        seen_urls=frozenset(
+            e["imageUrl"]
+            for e in entries
+            if e.get("speciesCode") == code and e.get("imageUrl")
+        ),
         scientific_name=entry.get("sciName", ""),
     )
 
@@ -219,7 +224,9 @@ def _heal_image_sizes(
     and the plate shows it whole. Either way the size is written to the
     history entry and to the per-publication cache, which is what takes
     the entry out of this queue. A photo that cannot be measured is left
-    for the next run.
+    for the next run, and does not count against ``limit``: a photo that
+    is gone for good would otherwise hold the newest slot for ever and
+    starve every older entry.
     """
     entries = history.get("entries", [])
     actions: list[BackfillAction] = []
@@ -233,7 +240,7 @@ def _heal_image_sizes(
             continue
         size = image_fetcher.measure(entry["imageUrl"], sess)
         if size is None:
-            actions.append(BackfillAction(code, "image-size", False))
+            logger.info("backfill: could not measure the photo of %s", code)
             continue
         ordinal = _ordinal(entries, index)
         image = image_fetcher.load_cached_image(code, cache_dir, ordinal) or (
@@ -249,7 +256,14 @@ def _heal_image_sizes(
         image.width, image.height = size
         if image_fetcher.crops_badly(*size):
             fresh = _refetch(entries, index, locale, sess)
-            if fresh.url and not image_fetcher.crops_badly(fresh.width, fresh.height):
+            # Only a photo known to fit: an unmeasured one, or this same
+            # photo handed back as the last resort, is no improvement.
+            if (
+                fresh.url
+                and fresh.url != entry["imageUrl"]
+                and fresh.width
+                and not image_fetcher.crops_badly(fresh.width, fresh.height)
+            ):
                 logger.info(
                     "backfill: %s on %s gets %s instead of a %sx%s photo",
                     code, entry.get("date"), fresh.url, *size,

@@ -222,7 +222,8 @@ class TestImageBackfill:
 
     def _fake_fetch(self, monkeypatch, result, calls=None):
         def _fetch(code, session=None, locale="en", *, ordinal=0,
-                   seen_asset_ids=frozenset(), scientific_name=""):
+                   seen_asset_ids=frozenset(), seen_urls=frozenset(),
+                   scientific_name=""):
             if calls is not None:
                 calls.append((code, ordinal, sorted(seen_asset_ids)))
             return result
