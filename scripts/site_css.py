@@ -332,6 +332,8 @@ main {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* Same top bias as .card-thumb img: portrait photos keep the head. */
+  object-position: center 30%;
   transition: transform 1.4s cubic-bezier(.2,.6,.2,1), filter .6s ease;
 }
 .plate:hover .plate-image img { transform: scale(1.02); }

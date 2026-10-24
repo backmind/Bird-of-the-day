@@ -142,3 +142,17 @@ class TestFontPreload:
             "Title", "<p>body</p>", self._ctx(prefix="../"), active="home"
         )
         assert f'href="../{urls.FONT_PRELOAD}"' in html
+
+
+def test_cover_images_bias_crop_toward_the_head():
+    """Una foto vertical en un marco 3:2 pierde casi la mitad de su altura;
+    centrada al 50 % se lleva la cabeza del pájaro (Picamaderos Negro,
+    2026-10-23). Lámina y miniatura recortan igual, sesgadas hacia arriba."""
+    import re
+
+    from scripts import site_css
+
+    for selector in (".plate-image img {", ".card-thumb img {"):
+        start = site_css.CSS.index(selector)
+        body = site_css.CSS[start:site_css.CSS.index("}", start)]
+        assert re.search(r"object-position:\s*center 30%", body), selector
